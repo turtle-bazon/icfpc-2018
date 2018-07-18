@@ -2,3 +2,4 @@
 
 ## Team members
 * Gleb Golubitsky (sectoid) - sectoid@gnolltech.org
+* Alexey Voznyuk (swizard) - me@swizard.info
