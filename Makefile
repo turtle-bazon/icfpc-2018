@@ -7,7 +7,13 @@ TEAM_ID ?= 83a5a58b38d74178b43b65caeef23500
 PROBLEMS := $(wildcard problems/LA*.mdl)
 TRACES := $(wildcard traces/LA*.nbt)
 
-all:
+all: build
+
+build:
+	$(MAKE) -C rust build
+
+test:
+	$(MAKE) -C rust test
 
 submission: check ${BUILD_NAME}.zip ${BUILD_NAME}.zip.hash
 	scp -q -oStrictHostKeyChecking=no ${BUILD_NAME}.zip ${SUBMISSION_SSH_URL}
@@ -29,4 +35,4 @@ ${BUILD_NAME}.zip: $(TRACES)
 ${BUILD_NAME}.zip.hash: ${BUILD_NAME}.zip
 	shasum -a 256 $< > $@
 
-.PHONY: all submission
+.PHONY: all submission check test build
