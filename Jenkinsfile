@@ -25,13 +25,12 @@ pipeline {
       }
       environment {
         SUBMISSION_SSH_URL = 'icfpc@icfpc.gnolltech.org:public/2018/'
-        SUBMISSION_PASSWORD = 'N4yqRa2qrqNy'
+        SUBMISSION_PASSWORD = '83a5a58b38d74178b43b65caeef23500'
         BUILD_NAME = "${GIT_BRANCH}-${BUILD_NUMBER}-${GIT_COMMIT}"
       }
       steps {
         sshagent (credentials: ['DEPLOYMENT_KEY']) {
-          sh "./make-submission.sh ${BUILD_NAME} ${SUBMISSION_PASSWORD} "
-          sh "scp -q -oStrictHostKeyChecking=no ${BUILD_NAME}.zip ${BUILD_NAME}.zip.hash ${SUBMISSION_SSH_URL}"
+          sh "make BUILD_NAME=${BUILD_NAME} TEAM_ID=${SUBMISSION_PASSWORD} submission"
         }
       }
     }

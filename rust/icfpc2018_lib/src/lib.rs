@@ -1,10 +1,5 @@
-pub fn dummy() {
-}
+extern crate bit_vec;
+extern crate pathfinding;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+pub mod coord;
+pub mod cmd;
