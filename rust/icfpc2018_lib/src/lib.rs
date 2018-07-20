@@ -25,8 +25,25 @@ impl Coord {
             z: self.z + diff.0.z,
         }
     }
+
+    pub fn diff(&self, other: &Coord) -> CoordDiff {
+        CoordDiff(Coord {
+            x: self.x - other.x,
+            y: self.y - other.y,
+            z: self.z - other.z,
+        })
+    }
+
+    pub fn is_adjacent(&self, other: &Coord) -> bool {
+        self.diff(other).l1_norm() == 1
+    }
 }
 
+impl CoordDiff {
+    pub fn l1_norm(&self) -> usize {
+        (self.0.x.abs() + self.0.y.abs() + self.0.z.abs()) as usize
+    }
+}
 
 // dummy
 
