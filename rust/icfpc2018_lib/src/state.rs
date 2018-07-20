@@ -1,8 +1,13 @@
 use std::collections::BTreeMap;
 
-use super::coord::{
-    Coord,
-    Matrix,
+use super::{
+    coord::{
+        Coord,
+        Matrix,
+    },
+    cmd::{
+        BotCommand,
+    },
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -28,5 +33,5 @@ pub struct State {
     pub harmonics: Harmonics,
     pub matrix: Matrix,
     pub bots: BTreeMap<Bid, Bot>,
-    pub trace: Vec<Command>,
+    pub trace: Vec<BotCommand>,
 }
