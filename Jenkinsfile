@@ -37,7 +37,19 @@ pipeline {
   }
   post {
     always {
-      step([$class: 'TelegramBotBuilder', message: "${currentBuild.currentResult} -- ${env.JOB_NAME} -- ${env.CHANGE_URL}\nDuration: ${currentBuild.durationString}\nDetails: ${BUILD_URL}"])
+      script {
+        def changeLog = "```";
+        for (int i = 0; i < currentBuild.changeSets.size(); i++) {
+          def entries = currentBuild.changeSets[i].items
+          for (int j = 0; j < entries.length; j++) {
+            def entry = entries[j]
+            changeLog += " * \"${entry.msg}\" by ${entry.author}\n"
+          }
+        }
+        changeLog += "```"
+
+        step([$class: 'TelegramBotBuilder', message: "*${currentBuild.currentResult}*  ${env.JOB_NAME}\nChanges:\n${changeLog}[Build log](${BUILD_URL})"]);
+      }
     }
   }
 }
