@@ -17,6 +17,12 @@ pipeline {
       }
     }
     stage('Submit') {
+      when {
+        anyOf {
+          branch 'lightning'
+          branch 'final'
+        }
+      }
       environment {
         SUBMISSION_SSH_URL = 'icfpc@icfpc.gnolltech.org:public/2018/'
         SUBMISSION_PASSWORD = 'N4yqRa2qrqNy'
