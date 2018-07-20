@@ -1,5 +1,8 @@
-use std::cmp;
+use std::{cmp, iter};
 use bit_vec::BitVec;
+
+const LOWER_LIMIT: isize = 0;
+const UPPER_LIMIT: isize = 250;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Axis { X, Y, Z, }
@@ -64,6 +67,18 @@ impl Coord {
     pub fn is_adjacent(&self, other: &Coord) -> bool {
         self.diff(other).l_1_norm() == 1
     }
+
+    pub fn near_neighbours(&self) -> impl Iterator<Item = Coord> {
+        iter::once(Coord { x: self.x - 1, y: self.y, z: self.z })
+            .chain(iter::once(Coord { x: self.x + 1, y: self.y, z: self.z }))
+            .chain(iter::once(Coord { x: self.x, y: self.y - 1, z: self.z }))
+            .chain(iter::once(Coord { x: self.x, y: self.y + 1, z: self.z }))
+            .chain(iter::once(Coord { x: self.x, y: self.y, z: self.z - 1 }))
+            .chain(iter::once(Coord { x: self.x, y: self.y, z: self.z + 1 }))
+            .filter(|c| c.x >= LOWER_LIMIT && c.x <= UPPER_LIMIT)
+            .filter(|c| c.y >= LOWER_LIMIT && c.y <= UPPER_LIMIT)
+            .filter(|c| c.z >= LOWER_LIMIT && c.z <= UPPER_LIMIT)
+    }
 }
 
 impl CoordDiff {
@@ -105,11 +120,103 @@ impl Matrix {
     pub fn new(Resolution(dimension): Resolution) -> Matrix {
         let dim = dimension as usize;
         let total_size = dim * dim * dim;
-        Matrix { dim, field: BitVec::with_capacity(total_size), }
+        Matrix { dim, field: BitVec::from_elem(total_size, false), }
+    }
+
+    pub fn from_iter<I>(dim: Resolution, filled_coords: I) -> Matrix where I: IntoIterator<Item = Coord> {
+        let mut matrix = Matrix::new(dim);
+        for coord in filled_coords {
+            let offset = (coord.x as usize * matrix.dim * matrix.dim) + (coord.y as usize * matrix.dim) + coord.z as usize;
+            matrix.field.set(offset, true);
+        }
+        matrix
     }
 
     pub fn is_filled(&self, coord: &Coord) -> bool {
         let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
+        assert!(offset < self.field.len());
         self.field[offset]
+    }
+
+    pub fn filled_near_neighbours<'a>(&'a self, coord: &Coord) -> impl Iterator<Item = Coord> + 'a {
+        coord.near_neighbours()
+            .filter(move |c| c.x < self.dim as isize)
+            .filter(move |c| c.y < self.dim as isize)
+            .filter(move |c| c.z < self.dim as isize)
+            .filter(move |c| self.is_filled(c))
+    }
+
+    pub fn is_grounded(&self, coord: &Coord) -> bool {
+        if !self.is_filled(coord) {
+            return false;
+        }
+
+        use pathfinding::directed::astar;
+
+        astar::astar(
+            coord,
+            |coord| self.filled_near_neighbours(coord)
+                .map(|neighbour| (neighbour, neighbour.y)),
+            |coord| coord.y,
+            |coord| coord.y == 0,
+        ).is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Coord, Resolution, Matrix};
+
+    #[test]
+    fn is_grounded_single_empty() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![]);
+        assert!(!matrix.is_grounded(&Coord { x: 1, y: 0, z: 1, }));
+    }
+
+    #[test]
+    fn is_grounded_single_on_floor() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![Coord { x: 1, y: 0, z: 1, }]);
+        assert!(matrix.is_grounded(&Coord { x: 1, y: 0, z: 1, }));
+    }
+
+    #[test]
+    fn is_grounded_single_flying() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![Coord { x: 1, y: 1, z: 1, }]);
+        assert!(!matrix.is_grounded(&Coord { x: 1, y: 1, z: 1, }));
+    }
+
+    #[test]
+    fn is_grounded_double() {
+        let matrix = Matrix::from_iter(
+            Resolution(3),
+            vec![
+                Coord { x: 1, y: 1, z: 1, },
+                Coord { x: 1, y: 0, z: 1, },
+            ]);
+        assert!(matrix.is_grounded(&Coord { x: 1, y: 1, z: 1, }));
+        assert!(matrix.is_grounded(&Coord { x: 1, y: 0, z: 1, }));
+        assert!(!matrix.is_grounded(&Coord { x: 1, y: 2, z: 1, }));
+    }
+
+    #[test]
+    fn is_grounded_cross() {
+        let matrix = Matrix::from_iter(
+            Resolution(3),
+            vec![
+                Coord { x: 1, y: 0, z: 1, },
+                Coord { x: 0, y: 1, z: 1, },
+                Coord { x: 1, y: 1, z: 0, },
+                Coord { x: 1, y: 1, z: 2, },
+                Coord { x: 1, y: 1, z: 1, },
+                Coord { x: 2, y: 1, z: 1, },
+                Coord { x: 1, y: 2, z: 1, },
+            ]);
+        assert!(matrix.is_grounded(&Coord { x: 1, y: 0, z: 1, }));
+        assert!(matrix.is_grounded(&Coord { x: 0, y: 1, z: 1, }));
+        assert!(matrix.is_grounded(&Coord { x: 1, y: 1, z: 0, }));
+        assert!(matrix.is_grounded(&Coord { x: 1, y: 1, z: 2, }));
+        assert!(matrix.is_grounded(&Coord { x: 1, y: 1, z: 1, }));
+        assert!(matrix.is_grounded(&Coord { x: 2, y: 1, z: 1, }));
+        assert!(matrix.is_grounded(&Coord { x: 1, y: 2, z: 1, }));
     }
 }
