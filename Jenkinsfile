@@ -8,12 +8,12 @@ pipeline {
   stages {
     stage('Build') {
       steps {
-        echo 'Build OK'
+        sh "make"
       }
     }
     stage('Test') {
       steps {
-        echo 'Test OK'
+        sh "make test"
       }
     }
     stage('Submit') {
