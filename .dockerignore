@@ -1,1 +1,8 @@
-.gitignore
+# Temporate files
+*~
+.#*
+*#*#
+
+problems/
+traces/
+orig_traces/
