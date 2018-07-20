@@ -1,4 +1,8 @@
-use std::io::{self, Read};
+use std::{
+    fs,
+    path::Path,
+    io::{self, Read},
+};
 
 use super::coord::{
     M,
@@ -11,6 +15,18 @@ use super::coord::{
 pub enum ModelError {
     ResolutionRead(io::Error),
     VoxelsRead(io::Error),
+}
+
+#[derive(Debug)]
+pub enum ReadError {
+    FileOpen(io::Error),
+    Model(ModelError),
+}
+
+#[derive(Debug)]
+pub struct Error {
+    filename: String,
+    error: ReadError,
 }
 
 pub fn read_model<R>(mut reader: R) -> Result<Matrix, ModelError> where R: Read {
@@ -51,4 +67,19 @@ pub fn read_model<R>(mut reader: R) -> Result<Matrix, ModelError> where R: Read 
             }
         });
     Ok(Matrix::from_iter(res, coords_iter))
+}
+
+pub fn read_model_file<P>(filename: P) -> Result<Matrix, Error> where P: AsRef<Path> {
+    let file = fs::File::open(&filename)
+        .map_err(ReadError::FileOpen)
+        .map_err(|error| Error {
+            filename: filename.as_ref().to_string_lossy().to_string(),
+            error,
+        })?;
+    read_model(io::BufReader::new(file))
+        .map_err(ReadError::Model)
+        .map_err(|error| Error {
+            filename: filename.as_ref().to_string_lossy().to_string(),
+            error,
+        })
 }
