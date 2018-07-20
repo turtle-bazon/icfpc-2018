@@ -60,6 +60,10 @@ impl CoordDiff {
             self.0.z.abs(),
         ) as usize
     }
+
+    pub fn is_near(&self) -> bool {
+        self.l_inf_norm() == 1 && self.l_1_norm() <= 2
+    }
 }
 
 // dummy
