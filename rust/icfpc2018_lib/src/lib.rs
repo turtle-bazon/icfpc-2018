@@ -24,6 +24,20 @@ pub enum LinearCoordDiff {
     Long { axis: Axis, value: M, },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Region {
+    pub min: Coord,
+    pub max: Coord,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum RegionDim {
+    Point,
+    Line,
+    Plane,
+    Box,
+}
+
 impl Coord {
     pub fn add(&self, diff: CoordDiff) -> Coord {
         Coord {
@@ -65,6 +79,24 @@ impl CoordDiff {
         self.l_inf_norm() == 1 && self.l_1_norm() <= 2
     }
 }
+
+
+
+impl Region {
+    pub fn dimension(&self) -> RegionDim {
+        match (self.min.x == self.max.x, self.min.y == self.max.y, self.min.z == self.max.z) {
+            (true, true, true) =>
+                RegionDim::Point,
+            (false, true, true) | (true, false, true) | (true, true, false) =>
+                RegionDim::Line,
+            (false, false, true) | (false, true, false) | (true, false, false) =>
+                RegionDim::Plane,
+            (false, false, false) =>
+                RegionDim::Box,
+        }
+    }
+}
+
 
 // dummy
 
