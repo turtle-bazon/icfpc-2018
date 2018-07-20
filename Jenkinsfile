@@ -25,7 +25,7 @@ pipeline {
       }
       environment {
         SUBMISSION_SSH_URL = 'icfpc@icfpc.gnolltech.org:public/2018/'
-        SUBMISSION_PASSWORD = 'N4yqRa2qrqNy'
+        SUBMISSION_PASSWORD = '83a5a58b38d74178b43b65caeef23500'
         BUILD_NAME = "${GIT_BRANCH}-${BUILD_NUMBER}-${GIT_COMMIT}"
       }
       steps {
