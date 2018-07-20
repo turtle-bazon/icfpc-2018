@@ -1,6 +1,6 @@
 use std::cmp;
 
-#[derive(Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Axis { X, Y, Z, }
 
 pub type M = isize;
@@ -17,6 +17,12 @@ pub struct Coord {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct CoordDiff(pub Coord);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum LinearCoordDiff {
+    Short { axis: Axis, value: M, },
+    Long { axis: Axis, value: M, },
+}
 
 impl Coord {
     pub fn add(&self, diff: CoordDiff) -> Coord {
