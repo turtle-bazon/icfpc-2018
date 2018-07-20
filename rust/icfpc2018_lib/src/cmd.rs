@@ -1,4 +1,5 @@
 use coord::{LinearCoordDiff,CoordDiff};
+use bit_vec::BitVec;
 
 #[derive(Debug)]
 pub enum Error {
@@ -18,7 +19,7 @@ pub enum BotCommand {
     FusionP{ near: CoordDiff },
     FusionS{ near: CoordDiff },
 }
-impl BotCommand {
+impl BotCommand {  
     pub fn halt() -> Result<BotCommand,Error> {
         Ok(BotCommand::Halt)
     }
@@ -67,4 +68,12 @@ impl BotCommand {
         if !df.is_near() { return Err(Error::CoordDiffIsNotNear); }
         Ok(BotCommand::FusionS{ near: df })
     }
+}
+
+pub fn from_bytes(bytes: &[u8]) -> Result<Vec<BotCommands>,Error> {
+    unimplemented!()
+}
+
+pub fn into_bytes(commands: &Vec<BotCommands>) -> Result<Vec<u8>,Error> {
+    unimplemented!()
 }
