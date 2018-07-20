@@ -1,8 +1,4 @@
 pipeline {
-  environment {
-    SUBMISSION_SSH_URL = 'icfpc@icfpc.gnolltech.org:public/2018/'
-    SUBMISSION_PASSWORD = 'N4yqRa2qrqNy'
-  }
   agent {
     dockerfile {
       reuseNode true
@@ -21,10 +17,15 @@ pipeline {
       }
     }
     stage('Submit') {
+      environment {
+        SUBMISSION_SSH_URL = 'icfpc@icfpc.gnolltech.org:public/2018/'
+        SUBMISSION_PASSWORD = 'N4yqRa2qrqNy'
+        BUILD_NAME = "${GIT_BRANCH}-${BUILD_NUMBER}-${GIT_COMMIT}"
+      }
       steps {
         sshagent (credentials: ['DEPLOYMENT_KEY']) {
-          sh "touch build-${GIT_BRANCH}-test"
-          sh "scp -oStrictHostKeyChecking=no build-${GIT_BRANCH}-test ${SUBMISSION_SSH_URL}"
+          sh "./make-submission.sh ${BUILD_NAME} ${SUBMISSION_PASSWORD} "
+          sh "scp -q -oStrictHostKeyChecking=no ${BUILD_NAME}.zip ${BUILD_NAME}.zip.hash ${SUBMISSION_SSH_URL}"
         }
       }
     }
