@@ -74,8 +74,12 @@ impl BotCommand {
     }
 }
 
+fn near_to_u8(df: &CoordDiff) -> Result<u8,Error> {
+    if !df.is_near() { return Err(Error::CoordDiffIsNotNear); }
+    Ok(((df.0.x + 1) as u8)*9 + ((df.0.y + 1) as u8)*3 + ((df.0.z + 1) as u8))
+}
 
-pub fn check_near(b: u8) -> Result<CoordDiff,Error> {
+fn check_near(b: u8) -> Result<CoordDiff,Error> {
     let z = b % 3;
     let y = (b % 9) / 3;
     let x = b / 9;
@@ -90,7 +94,15 @@ pub fn check_near(b: u8) -> Result<CoordDiff,Error> {
     }
 }
 
-pub fn check_axis(b: u8) -> Result<Axis,Error> {
+fn axis_to_u8(ax: &Axis) -> Result<u8,Error> {
+    match ax {
+        Axis::X => Ok(0b01),
+        Axis::Y => Ok(0b10),
+        Axis::Z => Ok(0b11),
+    }
+}
+
+fn check_axis(b: u8) -> Result<Axis,Error> {
     match b {
         0b01 => Ok(Axis::X),
         0b10 => Ok(Axis::Y),
@@ -157,7 +169,48 @@ pub fn from_bytes(bytes: &[u8]) -> Result<Vec<BotCommand>,Error> {
 }
 
 pub fn into_bytes(commands: &Vec<BotCommand>) -> Result<Vec<u8>,Error> {
-    unimplemented!()
+    let mut res = Vec::new();
+    for c in commands {
+        match c {
+            BotCommand::Halt => res.push(0b11111111),
+            BotCommand::Wait => res.push(0b11111110),
+            BotCommand::Flip => res.push(0b11111101),
+            BotCommand::Fill{ near } => res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b011),
+            BotCommand::FusionP{ near } => res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b111),
+            BotCommand::FusionS{ near } => res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b110),
+            BotCommand::Fission{ near , split_m } => {
+                res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b101);
+                res.push(*split_m)
+            },
+            BotCommand::SMove{ long } => {
+                match long {
+                    LinearCoordDiff::Short { axis, value } | LinearCoordDiff::Long { axis, value } if (*value >= -15)&&(*value <= 15) => {
+                        res.push( ((axis_to_u8(axis)? & 0b11)<<4) | 0b0100);
+                        res.push( ((value + 15) as u8) & 0b00011111 )
+                    },
+                    _  => return Err(Error::LinearCoordDiffTooLong),
+                }
+            },
+            BotCommand::LMove{ ref short1, ref short2 } => {
+                let (ax1, val1) = match short1 {
+                    LinearCoordDiff::Short { axis, value } | LinearCoordDiff::Long { axis, value } if (*value >= -5)&&(*value <= 5) => {
+                         (axis_to_u8(axis)?, (value+5) as u8)
+                    },
+                    _  => return Err(Error::LinearCoordDiffTooLong),
+                };
+                let (ax2, val2) = match short2 {
+                    LinearCoordDiff::Short { axis, value } | LinearCoordDiff::Long { axis, value } if (*value >= -5)&&(*value <= 5) => {
+                         (axis_to_u8(axis)?, (value+5) as u8)
+                    },
+                    _  => return Err(Error::LinearCoordDiffTooLong),
+                };
+                res.push( ((ax2 & 0b11) << 6) |
+                          ((ax1 & 0b11) << 4) | 0b1100 );
+                res.push( ((val2 & 0b1111) << 4) | (val1 & 0b1111) )
+            }            
+        }
+    }
+    Ok(res)
 }
 
 
@@ -171,6 +224,12 @@ mod test {
         let res = vec![BotCommand::halt().unwrap()];
         assert_eq!(res,from_bytes(&buf).unwrap());
     }
+    #[test]
+    fn test_ser_halt() {
+        let buf = vec![0b11111111];
+        let res = vec![BotCommand::halt().unwrap()];
+        assert_eq!(buf,into_bytes(&res).unwrap());
+    }
 
     #[test]
     fn test_deser_wait() {
@@ -178,12 +237,24 @@ mod test {
         let res = vec![BotCommand::wait().unwrap()];
         assert_eq!(res,from_bytes(&buf).unwrap());
     }
+    #[test]
+    fn test_ser_wait() {
+        let buf = vec![0b11111110];
+        let res = vec![BotCommand::wait().unwrap()];
+        assert_eq!(buf,into_bytes(&res).unwrap());
+    }
 
     #[test]
     fn test_deser_flip() {
         let buf = [0b11111101];
         let res = vec![BotCommand::flip().unwrap()];
         assert_eq!(res,from_bytes(&buf).unwrap());
+    }
+    #[test]
+    fn test_ser_flip() {
+        let buf = vec![0b11111101];
+        let res = vec![BotCommand::flip().unwrap()];
+        assert_eq!(buf,into_bytes(&res).unwrap());
     }
 
     // For example, SMove <12,0,0> is encoded as [00010100] [00011011] and SMove <0,0,-4> is encoded as [00110100] [00001011].
@@ -201,6 +272,21 @@ mod test {
             }).unwrap(),
                        ];
         assert_eq!(res,from_bytes(&buf).unwrap());
+    }
+    #[test]
+    fn test_ser_smove() {
+        let buf = vec![0b00010100,0b00011011,0b00110100,0b00001011];
+        let res = vec![
+            BotCommand::smove(LinearCoordDiff::Long{
+                axis: Axis::X,
+                value: 12,
+            }).unwrap(),
+            BotCommand::smove(LinearCoordDiff::Long{
+                axis: Axis::Z,
+                value: -4,
+            }).unwrap(),
+                       ];
+        assert_eq!(buf,into_bytes(&res).unwrap());
     }
 
     // For example, LMove <3,0,0> <0,-5,0> is encoded as [10011100] [00001000] and LMove <0,-2,0> <0,0,2> is encoded as [11101100] [01110011].
@@ -229,6 +315,31 @@ mod test {
                        ];
         assert_eq!(res,from_bytes(&buf).unwrap());
     }
+    #[test]
+    fn test_ser_lmove() {
+        let buf = vec![0b10011100,0b00001000,0b11101100,0b01110011];
+        let res = vec![
+            BotCommand::lmove(
+                LinearCoordDiff::Short{
+                    axis: Axis::X,
+                    value: 3,
+                },
+                LinearCoordDiff::Short{
+                    axis: Axis::Y,
+                    value: -5,
+                }).unwrap(),
+            BotCommand::lmove(
+                LinearCoordDiff::Short{
+                    axis: Axis::Y,
+                    value: -2,
+                },
+                LinearCoordDiff::Short{
+                    axis: Axis::Z,
+                    value: 2,
+                }).unwrap(),
+                       ];
+        assert_eq!(buf,into_bytes(&res).unwrap());
+    }
 
     // For example, FusionP <-1,1,0> is encoded as [00111111].
     #[test]
@@ -242,6 +353,18 @@ mod test {
             })).unwrap()
                 ];
         assert_eq!(res,from_bytes(&buf).unwrap());
+    }
+    #[test]
+    fn test_ser_fus_p() {
+        let buf = vec![0b00111111];
+        let res = vec![
+            BotCommand::pfusion(CoordDiff(Coord {
+                x: -1,
+                y: 1,
+                z: 0,
+            })).unwrap()
+                ];
+        assert_eq!(buf,into_bytes(&res).unwrap());
     }
 
     // For example, FusionS <1,-1,0> is encoded as [10011110].
@@ -257,6 +380,18 @@ mod test {
                 ];
         assert_eq!(res,from_bytes(&buf).unwrap());
     }
+    #[test]
+    fn test_ser_fus_s() {
+        let buf = vec![0b10011110];
+        let res = vec![
+            BotCommand::sfusion(CoordDiff(Coord {
+                x: 1,
+                y: -1,
+                z: 0,
+            })).unwrap()
+                ];
+        assert_eq!(buf,into_bytes(&res).unwrap());
+    }
 
     // For example, Fission <0,0,1> 5 is encoded as [01110101] [00000101].
     #[test]
@@ -271,6 +406,18 @@ mod test {
                 ];
         assert_eq!(res,from_bytes(&buf).unwrap());
     }
+    #[test]
+    fn test_ser_fission() {
+        let buf = vec![0b01110101,0b00000101];
+        let res = vec![
+            BotCommand::fission(CoordDiff(Coord {
+                x: 0,
+                y: 0,
+                z: 1,
+            }),5).unwrap()
+                ];
+        assert_eq!(buf,into_bytes(&res).unwrap());
+    }
 
     // For example, Fill <0,-1,0> is encoded as [01010011].
     #[test]
@@ -284,5 +431,17 @@ mod test {
             })).unwrap()
                 ];
         assert_eq!(res,from_bytes(&buf).unwrap());
+    }
+    #[test]
+    fn test_ser_fill() {
+        let buf = vec![0b01010011];
+        let res = vec![
+            BotCommand::fill(CoordDiff(Coord {
+                x: 0,
+                y: -1,
+                z: 0,
+            })).unwrap()
+                ];
+        assert_eq!(buf,into_bytes(&res).unwrap());
     }
 }
