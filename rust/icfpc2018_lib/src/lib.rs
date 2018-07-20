@@ -1,3 +1,4 @@
+use std::cmp;
 
 #[derive(Debug)]
 pub enum Axis { X, Y, Z, }
@@ -35,13 +36,23 @@ impl Coord {
     }
 
     pub fn is_adjacent(&self, other: &Coord) -> bool {
-        self.diff(other).l1_norm() == 1
+        self.diff(other).l_1_norm() == 1
     }
 }
 
 impl CoordDiff {
-    pub fn l1_norm(&self) -> usize {
+    pub fn l_1_norm(&self) -> usize {
         (self.0.x.abs() + self.0.y.abs() + self.0.z.abs()) as usize
+    }
+
+    pub fn l_inf_norm(&self) -> usize {
+        cmp::max(
+            cmp::max(
+                self.0.x.abs(),
+                self.0.y.abs(),
+            ),
+            self.0.z.abs(),
+        ) as usize
     }
 }
 
