@@ -137,6 +137,10 @@ impl Matrix {
         matrix
     }
 
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
     pub fn set_filled(&mut self, &coord: &Coord) {
         let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
         self.field.set(offset, true);
