@@ -1,4 +1,7 @@
+extern crate bit_vec;
+
 use std::cmp;
+use bit_vec::BitVec;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Axis { X, Y, Z, }
@@ -36,6 +39,11 @@ pub enum RegionDim {
     Line,
     Plane,
     Box,
+}
+
+pub struct Matrix {
+    dim: usize,
+    field: BitVec,
 }
 
 impl Coord {
@@ -80,8 +88,6 @@ impl CoordDiff {
     }
 }
 
-
-
 impl Region {
     pub fn dimension(&self) -> RegionDim {
         match (self.min.x == self.max.x, self.min.y == self.max.y, self.min.z == self.max.z) {
@@ -97,6 +103,18 @@ impl Region {
     }
 }
 
+impl Matrix {
+    pub fn new(Resolution(dimension): Resolution) -> Matrix {
+        let dim = dimension as usize;
+        let total_size = dim * dim * dim;
+        Matrix { dim, field: BitVec::with_capacity(total_size), }
+    }
+
+    pub fn is_filled(&self, coord: &Coord) -> bool {
+        let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
+        self.field[offset]
+    }
+}
 
 // dummy
 

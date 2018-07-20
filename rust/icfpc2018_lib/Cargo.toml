@@ -4,3 +4,4 @@ version = "0.1.1"
 authors = ["Alexey Voznyuk <me@swizard.info>"]
 
 [dependencies]
+bit-vec = "0.5"
