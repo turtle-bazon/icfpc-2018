@@ -1,4 +1,5 @@
 use std::{cmp, iter};
+use std::collections::HashSet;
 use bit_vec::BitVec;
 
 const LOWER_LIMIT: isize = 0;
@@ -45,6 +46,7 @@ pub enum RegionDim {
 pub struct Matrix {
     dim: usize,
     field: BitVec,
+    filled: HashSet<Coord>,
 }
 
 impl Coord {
@@ -120,16 +122,25 @@ impl Matrix {
     pub fn new(Resolution(dimension): Resolution) -> Matrix {
         let dim = dimension as usize;
         let total_size = dim * dim * dim;
-        Matrix { dim, field: BitVec::from_elem(total_size, false), }
+        Matrix {
+            dim,
+            field: BitVec::from_elem(total_size, false),
+            filled: HashSet::new(),
+        }
     }
 
     pub fn from_iter<I>(dim: Resolution, filled_coords: I) -> Matrix where I: IntoIterator<Item = Coord> {
         let mut matrix = Matrix::new(dim);
         for coord in filled_coords {
-            let offset = (coord.x as usize * matrix.dim * matrix.dim) + (coord.y as usize * matrix.dim) + coord.z as usize;
-            matrix.field.set(offset, true);
+            matrix.set_filled(&coord);
         }
         matrix
+    }
+
+    pub fn set_filled(&mut self, &coord: &Coord) {
+        let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
+        self.field.set(offset, true);
+        self.filled.insert(coord);
     }
 
     pub fn is_filled(&self, coord: &Coord) -> bool {
@@ -160,6 +171,31 @@ impl Matrix {
             |coord| coord.y,
             |coord| coord.y == 0,
         ).is_some()
+    }
+
+    pub fn filled_voxels(&self) -> impl Iterator<Item = &Coord> {
+        self.filled.iter()
+    }
+
+    pub fn all_voxels_are_grounded(&self) -> bool {
+        let mut voxels_pending = self.filled.clone();
+        while let Some(&voxel) = voxels_pending.iter().next() {
+            let mut queue = vec![voxel];
+            let mut grounded = false;
+            while let Some(voxel) = queue.pop() {
+                if !voxels_pending.remove(&voxel) {
+                    continue;
+                }
+                if voxel.y == 0 {
+                    grounded = true;
+                }
+                queue.extend(self.filled_near_neighbours(&voxel));
+            }
+            if !grounded {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -229,5 +265,21 @@ mod tests {
         assert!(matrix.is_grounded(&Coord { x: 1, y: 1, z: 1, }));
         assert!(matrix.is_grounded(&Coord { x: 2, y: 1, z: 1, }));
         assert!(matrix.is_grounded(&Coord { x: 1, y: 2, z: 1, }));
+    }
+
+    #[test]
+    fn is_all_grounded_cross() {
+        let matrix = Matrix::from_iter(
+            Resolution(3),
+            vec![
+                Coord { x: 1, y: 0, z: 1, },
+                Coord { x: 0, y: 1, z: 1, },
+                Coord { x: 1, y: 1, z: 0, },
+                Coord { x: 1, y: 1, z: 2, },
+                Coord { x: 1, y: 1, z: 1, },
+                Coord { x: 2, y: 1, z: 1, },
+                Coord { x: 1, y: 2, z: 1, },
+            ]);
+        assert!(matrix.all_voxels_are_grounded());
     }
 }
