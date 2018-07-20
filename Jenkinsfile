@@ -30,8 +30,7 @@ pipeline {
       }
       steps {
         sshagent (credentials: ['DEPLOYMENT_KEY']) {
-          sh "./make-submission.sh ${BUILD_NAME} ${SUBMISSION_PASSWORD} "
-          sh "scp -q -oStrictHostKeyChecking=no ${BUILD_NAME}.zip ${BUILD_NAME}.zip.hash ${SUBMISSION_SSH_URL}"
+          sh "make BUILD_NAME=${BUILD_NAME} TEAM_ID=${SUBMISSION_PASSWORD} submission"
         }
       }
     }
