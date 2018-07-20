@@ -25,4 +25,19 @@ impl BotCommand {
             _  => Err(Error::LinearCoordDiffTooLong),
         }
     }
+    pub fn lmove(first: LinearCoordDiff, second: LinearCoordDiff) -> Result<BotCommand,Error> {
+        let f = match first {
+            LinearCoordDiff::Short { axis, value } | LinearCoordDiff::Long { axis, value } if (value >= -5)&&(value <= 5) => {
+                LinearCoordDiff::Short { axis: axis, value: value }
+            },
+            _  => return Err(Error::LinearCoordDiffTooLong),
+        };
+        let s = match second {
+            LinearCoordDiff::Short { axis, value } | LinearCoordDiff::Long { axis, value } if (value >= -5)&&(value <= 5) => {
+                LinearCoordDiff::Short { axis: axis, value: value }
+            },
+            _  => return Err(Error::LinearCoordDiffTooLong),
+        };
+        Ok(BotCommand::LMove{ short1: f, short2: s })
+    }
 }
