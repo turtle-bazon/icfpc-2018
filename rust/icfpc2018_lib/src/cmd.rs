@@ -1,15 +1,16 @@
-use coord::{LinearCoordDiff,CoordDiff}; 
+use coord::{LinearCoordDiff,CoordDiff};
 
 #[derive(Debug)]
 pub enum Error {
     LinearCoordDiffTooLong,
 }
 
+#[derive(Debug)]
 pub enum BotCommand {
     Halt,
     Wait,
     Flip,
-    SMove{ long: LinearCoordDiff }, 
+    SMove{ long: LinearCoordDiff },
     LMove{ short1: LinearCoordDiff, short2: LinearCoordDiff },
     Fission{ near: CoordDiff, split_m: u8 },
     Fill{ near: CoordDiff },
