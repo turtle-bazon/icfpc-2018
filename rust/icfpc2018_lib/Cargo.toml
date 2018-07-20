@@ -1,0 +1,6 @@
+[package]
+name = "icfpc2018_lib"
+version = "0.1.0"
+authors = ["Alexey Voznyuk <me@swizard.info>"]
+
+[dependencies]
