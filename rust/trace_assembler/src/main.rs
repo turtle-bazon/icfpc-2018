@@ -16,56 +16,69 @@ use icfpc2018_lib::{
 };
 
 fn main() {
-    let script: Vec<Result<BotCommand, _>> = vec![
-        BotCommand::halt(),
-        BotCommand::wait(),
-        BotCommand::flip(),
-        BotCommand::smove(
-            LinearCoordDiff::Long {
-                axis: Axis::X,
-                value: 8,
-            },
-        ),
-        BotCommand::lmove(
-            LinearCoordDiff::Short {
-                axis: Axis::Y,
-                value: 4,
-            },
-            LinearCoordDiff::Short {
-                axis: Axis::Z,
-                value: -4,
-            },
-        ),
-        BotCommand::fission(
-            CoordDiff(Coord {
-                x: 1,
-                y: 0,
-                z: 0,
-            }),
-            1,
-        ),
-        BotCommand::fill(
-            CoordDiff(Coord {
-                x: -1,
-                y: 0,
-                z: 0,
-            }),
-        ),
-        BotCommand::pfusion(
-            CoordDiff(Coord {
-                x: 0,
-                y: 1,
-                z: 0,
-            }),
-        ),
-        BotCommand::sfusion(
-            CoordDiff(Coord {
-                x: 0,
-                y: -1,
-                z: 0,
-            }),
-        ),
-    ];
+    let mut script: Vec<Result<BotCommand, _>> = Vec::new();
+
+    script.extend(
+        vec![
+            BotCommand::halt(),
+            BotCommand::wait(),
+            BotCommand::flip(),
+        ]
+    );
+    script.extend(
+        (0 .. 10)
+            .map(|i| {
+                BotCommand::smove(
+                    LinearCoordDiff::Long {
+                        axis: Axis::X,
+                        value: i,
+                    },
+                )
+            })
+    );
+    script.extend(
+        vec![
+            BotCommand::lmove(
+                LinearCoordDiff::Short {
+                    axis: Axis::Y,
+                    value: 4,
+                },
+                LinearCoordDiff::Short {
+                    axis: Axis::Z,
+                    value: -4,
+                },
+            ),
+            BotCommand::fission(
+                CoordDiff(Coord {
+                    x: 1,
+                    y: 0,
+                    z: 0,
+                }),
+                1,
+            ),
+            BotCommand::fill(
+                CoordDiff(Coord {
+                    x: -1,
+                    y: 0,
+                    z: 0,
+                }),
+            ),
+            BotCommand::pfusion(
+                CoordDiff(Coord {
+                    x: 0,
+                    y: 1,
+                    z: 0,
+                }),
+            ),
+            BotCommand::sfusion(
+                CoordDiff(Coord {
+                    x: 0,
+                    y: -1,
+                    z: 0,
+                }),
+            ),
+        ]
+    );
 
     let mut validated_script = Vec::with_capacity(script.len());
     for (i, maybe_command) in script.into_iter().enumerate() {
