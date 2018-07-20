@@ -1,5 +1,9 @@
+use std::collections::BTreeMap;
 
-use super::coord::Matrix;
+use super::coord::{
+    Coord,
+    Matrix,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Harmonics {
@@ -7,8 +11,13 @@ pub enum Harmonics {
     High,
 }
 
+pub type Bid = usize;
+
 #[derive(Debug)]
-pub struct Bot;
+pub struct Bot {
+    pub pos: Coord,
+    pub seeds: Vec<Bid>,
+}
 
 #[derive(Debug)]
 pub struct Command;
@@ -18,6 +27,6 @@ pub struct State {
     pub energy: usize,
     pub harmonics: Harmonics,
     pub matrix: Matrix,
-    pub bots: Vec<Bot>,
+    pub bots: BTreeMap<Bid, Bot>,
     pub trace: Vec<Command>,
 }
