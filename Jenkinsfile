@@ -6,16 +6,6 @@ pipeline {
   }
 
   stages {
-    stage('Build') {
-      steps {
-        sh "make"
-      }
-    }
-    stage('Test') {
-      steps {
-        sh "make test"
-      }
-    }
     stage('Submit') {
       when {
         anyOf {
