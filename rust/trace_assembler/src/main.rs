@@ -73,7 +73,7 @@ fn main() {
             Ok(cmd) =>
                 validated_script.push(cmd),
             Err(err) =>
-                panic!("command {} is corrupt: {:?}", i, err),
+                panic!("command {} is corrupted: {:?}", i, err),
         }
     }
 
