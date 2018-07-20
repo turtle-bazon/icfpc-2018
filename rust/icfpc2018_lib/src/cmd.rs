@@ -1,5 +1,5 @@
 use coord::{LinearCoordDiff,CoordDiff};
-use bit_vec::BitVec;
+
 
 #[derive(Debug)]
 pub enum Error {
@@ -70,10 +70,10 @@ impl BotCommand {
     }
 }
 
-pub fn from_bytes(bytes: &[u8]) -> Result<Vec<BotCommands>,Error> {
+pub fn from_bytes(bytes: &[u8]) -> Result<Vec<BotCommand>,Error> {
     unimplemented!()
 }
 
-pub fn into_bytes(commands: &Vec<BotCommands>) -> Result<Vec<u8>,Error> {
+pub fn into_bytes(commands: &Vec<BotCommand>) -> Result<Vec<u8>,Error> {
     unimplemented!()
 }
