@@ -282,4 +282,19 @@ mod tests {
             ]);
         assert!(matrix.all_voxels_are_grounded());
     }
+
+    #[test]
+    fn is_all_grounded_corrupt_cross() {
+        let matrix = Matrix::from_iter(
+            Resolution(3),
+            vec![
+                Coord { x: 1, y: 0, z: 1, },
+                Coord { x: 0, y: 1, z: 1, },
+                Coord { x: 1, y: 1, z: 0, },
+                Coord { x: 1, y: 1, z: 2, },
+                Coord { x: 2, y: 1, z: 1, },
+                Coord { x: 1, y: 2, z: 1, },
+            ]);
+        assert!(!matrix.all_voxels_are_grounded());
+    }
 }
