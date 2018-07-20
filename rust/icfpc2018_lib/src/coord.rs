@@ -163,6 +163,17 @@ impl Matrix {
     }
 }
 
+use std::fmt;
+
+impl fmt::Debug for Matrix {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Matrix")
+            .field("dimension", &self.dim)
+            .finish()
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::{Coord, Resolution, Matrix};
