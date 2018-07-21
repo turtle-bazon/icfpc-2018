@@ -54,6 +54,7 @@ pub enum Error {
     HaltTooManyBots,
     HaltNotInLow,
     MoveOutOfBounds {c: Coord},
+    MoveRegionIsNotVoid {r: Region},
 }
 
 
@@ -132,15 +133,20 @@ impl State {
             BotCommand::SMove{ long } => {
                 let d = long.to_coord_diff();
                 let cf = c.add(d);
+                let volatile_reg = Region::from_corners(&c, &cf);
 
                 if !self.matrix.is_valid_coord(&cf) {
                     return Err(Error::MoveOutOfBounds{c: cf})
                 }
 
+                if !self.matrix.contains_filled(&volatile_reg) {
+                    return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
+                }
+
                 bot.pos = cf;
                 self.energy += 2 * d.l_1_norm();
 
-                for c in Region::from_corners(&c, &cf).coord_set().iter() {
+                for c in volatile_reg.coord_set().iter() {
                     volatile.insert(*c);
                 }
             },
@@ -152,19 +158,24 @@ impl State {
                 if !self.matrix.is_valid_coord(&cf) {
                     return Err(Error::MoveOutOfBounds{c: cf})
                 }
+                let volatile_reg = Region::from_corners(&c, &cf);
+                if !self.matrix.contains_filled(&volatile_reg) {
+                    return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
+                }
 
                 let cff = cf.add(d2);
                 if !self.matrix.is_valid_coord(&cff) {
                     return Err(Error::MoveOutOfBounds{c: cff})
                 }
+                let volatile_reg2 = Region::from_corners(&cf, &cff);
+                if !self.matrix.contains_filled(&volatile_reg2) {
+                    return Err(Error::MoveRegionIsNotVoid{r: volatile_reg2})
+                }
 
                 bot.pos = cff;
                 self.energy += 2 * (d1.l_1_norm() + 2 + d2.l_1_norm());
 
-                for c in Region::from_corners(&c, &cf).coord_set().iter() {
-                    volatile.insert(*c);
-                }
-                for c in Region::from_corners(&cf, &cff).coord_set().iter() {
+                for c in volatile_reg.coord_set().union(&volatile_reg2.coord_set()) {
                     volatile.insert(*c);
                 }
             },
