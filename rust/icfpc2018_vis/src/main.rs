@@ -127,7 +127,7 @@ fn run() -> Result<(), Error> {
             .map_err(PistonError::DebugRendererInit)
             .map_err(Error::Piston)?
     };
-    let mut voxel_renderer = voxel::VoxelRenderer::new(&mut window.factory, 64)
+    let mut voxel_renderer = voxel::VoxelRenderer::new(window.factory.clone(), 64)
         .map_err(PistonError::VoxelRenderer)
         .map_err(Error::Piston)?;
 
@@ -262,7 +262,7 @@ fn run() -> Result<(), Error> {
                         // draw voxel
                         let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
                         let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
-                        voxel_renderer.draw_voxel(min_point, max_point, [0.54, 0.27, 0.07, 0.85]);
+                        voxel_renderer.draw_voxel(min_point, max_point, [0.54, 0.27, 0.07, 1.0]);
                         // draw mesh
                         let position =
                             [voxel.x as f32, voxel.y as f32, voxel.z as f32];
@@ -306,6 +306,7 @@ fn run() -> Result<(), Error> {
                 }
 
                 let total = script.len();
+                let mut oi = 0;
                 for (i, cmd) in script.iter().enumerate() {
                     if (i as isize) < (total as isize) - 10 {
                         continue;
@@ -313,12 +314,13 @@ fn run() -> Result<(), Error> {
 
                     debug_renderer.draw_text_on_screen(
                         &format!("{}: {:?}", i, cmd),
-                        [10, 10 + i as i32 * 20],
+                        [10, 10 + oi * 20],
                         [0.0, 0.0, 0.0, 1.0],
                     );
+                    oi += 1;
                 }
 
-                voxel_renderer.render(&mut win.encoder, &mut win.factory, &win.output_color, &win.output_stencil, camera_projection)
+                voxel_renderer.render(&mut win.encoder, &win.output_color, &win.output_stencil, camera_projection)
                     .map_err(PistonError::VoxelRenderer)?;
                 debug_renderer.render(&mut win.encoder, &win.output_color, &win.output_stencil, camera_projection)
                     .map_err(PistonError::DebugRendererRender)?;
