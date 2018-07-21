@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use rand;
+use rand::{self, Rng};
 
 use rtt::{
     self,
@@ -63,17 +63,38 @@ pub fn plan_route<VI>(
             }
             iters += 1;
 
-            // let planner_sample = planner_ready_to_sample.sample_ok(|_rtt: &mut _| {
-            //     Ok((rng.gen_range(0, height), rng.gen_range(0, width)))
-            // });
-            // let planner_closest = planner_sample.closest_to_sample_ok(locate_closest);
+            let planner_sample = planner_ready_to_sample.sample_ok(|_rtt: &mut _| {
+                let dim = matrix.dim() as isize;
+                Ok(Coord {
+                    x: rng.gen_range(0, dim),
+                    y: rng.gen_range(0, dim),
+                    z: rng.gen_range(0, dim),
+                })
+            });
+            let planner_closest = planner_sample.closest_to_sample_ok(|rtt: &mut RandomTree<Move>, sample: &_| {
+                let mut closest;
+                {
+                    let states = rtt.states();
+                    closest = (states.root.0, states.root.1.coord.diff(sample).l_1_norm());
+                    for (node_ref, mv) in states.children {
+                        let dist = mv.coord.diff(sample).l_1_norm();
+                        if dist < closest.1 {
+                            closest = (node_ref, dist);
+                        }
+                    }
+                }
+                Ok(RttNodeFocus { node_ref: closest.0, goal_reached: false, })
+            });
 
             // let route = {
-            //     let rtt = planner_closest.rtt();
-            //     let node_ref = &planner_closest.node_ref().node_ref;
-            //     let dst = planner_closest.sample();
-            //     StraightPathIter::new(rtt.get_state(node_ref), dst)
-            // };
+            let rtt = planner_closest.rtt();
+            let node_ref = &planner_closest.node_ref().node_ref;
+            let dst = planner_closest.sample();
+            let src = rtt.get_state(node_ref).coord;
+            unimplemented!()
+                //StraightPathIter::new(rtt.get_state(node_ref), dst)
+
+            //};
 
             // if let Some(path_iter) = route {
             //     let blocked = path_iter.clone().any(|coord| {
@@ -98,4 +119,85 @@ pub fn plan_route<VI>(
 struct RttNodeFocus {
     node_ref: NodeRef,
     goal_reached: bool,
+}
+
+#[derive(PartialEq, Eq, Debug)]
+struct EdgesJump {
+    start: Coord,
+    mid_a: Coord,
+    mid_b: Coord,
+    finish: Coord,
+}
+
+fn random_edge_paths<R>(start: Coord, finish: Coord, rng: &mut R) -> impl Iterator<Item = EdgesJump> where R: Rng {
+    let table = [
+        ((finish.x, start.y, start.z), (finish.x, finish.y, start.z)),
+        ((finish.x, start.y, start.z), (finish.x, start.y, finish.z)),
+        ((start.x, finish.y, start.z), (finish.x, finish.y, start.z)),
+        ((start.x, finish.y, start.z), (start.x, finish.y, finish.z)),
+        ((start.x, start.y, finish.z), (finish.x, start.y, finish.z)),
+        ((start.x, start.y, finish.z), (start.x, finish.y, finish.z)),
+    ];
+
+    let mut picks = [0, 1, 2, 3, 4, 5];
+    rng.shuffle(&mut picks);
+    (0 .. 6)
+        .map(move |index| picks[index])
+        .map(move |choice| EdgesJump {
+            start, finish,
+            mid_a: Coord { x: (table[choice].0).0, y: (table[choice].0).1, z: (table[choice].0).2, },
+            mid_b: Coord { x: (table[choice].1).0, y: (table[choice].1).1, z: (table[choice].1).2, },
+        })
+}
+
+#[cfg(test)]
+mod test {
+    use rand;
+    use super::super::super::coord::Coord;
+    use super::EdgesJump;
+
+    #[test]
+    fn random_edge_paths() {
+        let paths: Vec<_> = super::random_edge_paths(
+            Coord { x: 0, y: 0, z: 0, },
+            Coord { x: 2, y: 2, z: 2, },
+            &mut rand::thread_rng(),
+        ).collect();
+        assert!(paths.contains(&EdgesJump {
+            start: Coord { x: 0, y: 0, z: 0, },
+            finish: Coord { x: 2, y: 2, z: 2, },
+            mid_a: Coord { x: 2, y: 0, z: 0, },
+            mid_b: Coord { x: 2, y: 2, z: 0, },
+        }));
+        assert!(paths.contains(&EdgesJump {
+            start: Coord { x: 0, y: 0, z: 0, },
+            finish: Coord { x: 2, y: 2, z: 2, },
+            mid_a: Coord { x: 2, y: 0, z: 0, },
+            mid_b: Coord { x: 2, y: 0, z: 2, },
+        }));
+        assert!(paths.contains(&EdgesJump {
+            start: Coord { x: 0, y: 0, z: 0, },
+            finish: Coord { x: 2, y: 2, z: 2, },
+            mid_a: Coord { x: 0, y: 2, z: 0, },
+            mid_b: Coord { x: 2, y: 2, z: 0, },
+        }));
+        assert!(paths.contains(&EdgesJump {
+            start: Coord { x: 0, y: 0, z: 0, },
+            finish: Coord { x: 2, y: 2, z: 2, },
+            mid_a: Coord { x: 0, y: 2, z: 0, },
+            mid_b: Coord { x: 0, y: 2, z: 2, },
+        }));
+        assert!(paths.contains(&EdgesJump {
+            start: Coord { x: 0, y: 0, z: 0, },
+            finish: Coord { x: 2, y: 2, z: 2, },
+            mid_a: Coord { x: 0, y: 0, z: 2, },
+            mid_b: Coord { x: 2, y: 0, z: 2, },
+        }));
+        assert!(paths.contains(&EdgesJump {
+            start: Coord { x: 0, y: 0, z: 0, },
+            finish: Coord { x: 2, y: 2, z: 2, },
+            mid_a: Coord { x: 0, y: 0, z: 2, },
+            mid_b: Coord { x: 0, y: 2, z: 2, },
+        }));
+    }
 }

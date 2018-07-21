@@ -89,7 +89,7 @@ fn smove_iter<I>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{
+    use super::super::super::{
         coord::{
             Matrix,
             Resolution,
