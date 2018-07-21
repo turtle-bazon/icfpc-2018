@@ -240,6 +240,13 @@ impl Matrix {
         }
         true
     }
+
+    pub fn is_valid_coord(&self, c: &Coord) -> bool {
+        c.x >= 0 && c.y >= 0 && c.z >= 0
+            && (c.x as usize) < self.dim()
+            && (c.y as usize) < self.dim()
+            && (c.z as usize) < self.dim()
+    }
 }
 
 use std::fmt;
@@ -339,6 +346,15 @@ mod tests {
                 Coord { x: 1, y: 2, z: 1, },
             ]);
         assert!(!matrix.all_voxels_are_grounded());
+    }
+
+    #[test]
+    fn is_coord_valid() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![]);
+        assert!(matrix.is_valid_coord(&Coord { x: 1, y: 0, z: 0}));
+        assert!(!matrix.is_valid_coord(&Coord { x: 3, y: 1, z: 0}));
+        assert!(!matrix.is_valid_coord(&Coord { x: 1, y: 3, z: 0}));
+        assert!(!matrix.is_valid_coord(&Coord { x: 1, y: 2, z: 3}));
     }
 
     #[test]
