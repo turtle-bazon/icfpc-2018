@@ -167,10 +167,27 @@ fn run() -> Result<(), Error> {
                     projection,
                 );
 
-                debug_renderer.draw_line(
-	            [0.0, 0.0, 0.0], // Start position
-	            [5.0, 0.0, 0.0], // End position
-	            [1.0, 0.0, 0.0, 1.0], // Line color
+                // Draw axes
+                debug_renderer.draw_line([0.0, 0.0, 0.0], [5.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
+                debug_renderer.draw_line([0.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 1.0, 0.0, 1.0]);
+                debug_renderer.draw_line([0.0, 0.0, 0.0], [0.0, 0.0, 5.0], [0.0, 0.0, 1.0, 1.0]);
+
+                debug_renderer.draw_text_at_position(
+                    "X",
+                    [6.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 1.0],
+                );
+
+                debug_renderer.draw_text_at_position(
+                    "Y",
+                    [0.0, 6.0, 0.0],
+                    [0.0, 1.0, 0.0, 1.0],
+                );
+
+                debug_renderer.draw_text_at_position(
+                    "Z",
+                    [0.0, 0.0, 6.0],
+                    [0.0, 0.0, 1.0, 1.0],
                 );
 
                 debug_renderer.render(&mut win.encoder, &win.output_color, &win.output_stencil, camera_projection)
