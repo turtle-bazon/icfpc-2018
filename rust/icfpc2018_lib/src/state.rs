@@ -49,7 +49,7 @@ pub enum WellformedStatus {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Error {
     StateNotWellformed{status: WellformedStatus},
-    InvalidBotid{bid: Bid},
+    InvalidBid{bid: Bid},
     CommandsInterfere,
     HaltNotAtZeroCoord,
     HaltTooManyBots,
@@ -102,7 +102,7 @@ impl State {
 
     pub fn do_cmd_mut(&mut self, bid: Bid, cmd: BotCommand) -> Result<HashSet<Coord>, Error> {
         if let None = self.bots.get(&bid) {
-            return Err(Error::InvalidBotid{bid})
+            return Err(Error::InvalidBid{bid})
         }
 
         let c = self.bots.get(&bid).unwrap().pos;
@@ -110,7 +110,7 @@ impl State {
 
         match cmd {
             BotCommand::Halt => {
-                let check_coord = c.x == 0 || c.y == 0 || c.z == 0;
+                let check_coord = c.x == 0 && c.y == 0 && c.z == 0;
                 let bot_ids: Vec<Bid> = self.bots.keys().cloned().collect();
                 let check_the_only_bot = bot_ids == [bid];
                 let check_low = self.harmonics == Harmonics::Low;
@@ -186,6 +186,10 @@ impl State {
             },
             BotCommand::Fill{ near } => {
                 let cf = c.add(near);
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+
                 if !self.matrix.is_filled(&cf) {
                     self.matrix.set_filled(&cf);
                     self.energy += 12;
@@ -193,6 +197,7 @@ impl State {
                 else {
                     self.energy += 6;
                 }
+                volatile.insert(cf);
             },
             BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
             BotCommand::FusionP{ near: _ } => unimplemented!(),
@@ -232,6 +237,7 @@ mod test {
     use super::super::{
         coord::{
             Coord,
+            CoordDiff,
             Matrix,
             Resolution,
         }
@@ -255,12 +261,122 @@ mod test {
         assert_eq!(bot.seeds, vec![2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]);
     }
 
-    // #[test]
-    // fn do_cmd_halt() {
-    //     let matrix = Matrix::new(Resolution(4));
-    //     let mut state = State::new(matrix, vec![]);
+    #[test]
+    fn do_cmd_halt() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
 
-    //     let res = state.do_cmd_mut(1, BotCommand::halt().unwrap());
+        let res = state.do_cmd_mut(1, BotCommand::halt().unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.bots.len(), 0);
+        assert_eq!(state.energy, 0);
+        let exp : HashSet<Coord> = [Coord { x: 0, y:0, z: 0, }].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
 
-    // }
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+        let c = Coord { x: 1, y:0, z: 0, };
+        state.bots.get_mut(&1).unwrap().pos = c;
+        let res = state.do_cmd_mut(1, BotCommand::halt().unwrap());
+        assert!(res.is_err());
+        assert_eq!(res, Err(Error::HaltNotAtZeroCoord));
+        assert_eq!(state.energy, 0);
+
+        /* TODO: Halt too many bots */
+
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+        state.harmonics = Harmonics::High;
+        let res = state.do_cmd_mut(1, BotCommand::halt().unwrap());
+        assert!(res.is_err());
+        assert_eq!(res, Err(Error::HaltNotInLow));
+        assert_eq!(state.energy, 0);
+
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+        let res = state.do_cmd_mut(2, BotCommand::halt().unwrap());
+        assert!(res.is_err());
+        assert_eq!(state.energy, 0);
+        assert_eq!(res, Err(Error::InvalidBid{bid:2}));
+    }
+
+    #[test]
+    fn do_cmd_wait() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        let res = state.do_cmd_mut(1, BotCommand::wait().unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.energy, 0);
+        let exp : HashSet<Coord> = [Coord { x: 0, y:0, z: 0, }].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let res = state.do_cmd_mut(2, BotCommand::wait().unwrap());
+        assert!(res.is_err());
+        assert_eq!(state.energy, 0);
+        assert_eq!(res, Err(Error::InvalidBid{bid:2}));
+    }
+
+    #[test]
+    fn do_cmd_flip() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        // Low -> High
+        let res = state.do_cmd_mut(1, BotCommand::flip().unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.harmonics, Harmonics::High);
+        assert_eq!(state.energy, 0);
+        let exp : HashSet<Coord> = [Coord { x: 0, y:0, z: 0, }].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        // High -> Low
+        let res = state.do_cmd_mut(1, BotCommand::flip().unwrap());
+        let exp : HashSet<Coord> = [Coord { x: 0, y:0, z: 0, }].iter().cloned().collect();
+        assert!(res.is_ok());
+        assert_eq!(state.harmonics, Harmonics::Low);
+        assert_eq!(state.energy, 0);
+        assert_eq!(res.unwrap(), exp);
+
+        let res = state.do_cmd_mut(2, BotCommand::flip().unwrap());
+        assert!(res.is_err());
+        assert_eq!(state.energy, 0);
+        assert_eq!(res, Err(Error::InvalidBid{bid:2}));
+    }
+
+    #[test]
+    fn do_cmd_fill() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        let res = state.do_cmd_mut(1, BotCommand::fill(df).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.energy, 12);
+        assert!(state.matrix.is_filled(&Coord { x:1, y:0, z:0 }));
+        let exp : HashSet<Coord> = [
+            Coord { x: 0, y:0, z: 0, },
+            Coord { x: 1, y:0, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        state.energy = 0; // reset energy
+        let res = state.do_cmd_mut(1, BotCommand::fill(df).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.energy, 6);
+        assert!(state.matrix.is_filled(&Coord { x:1, y:0, z:0 }));
+        let exp : HashSet<Coord> = [
+            Coord { x: 0, y:0, z: 0, },
+            Coord { x: 1, y:0, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let matrix = Matrix::new(Resolution(1));
+        let mut state = State::new(matrix, vec![]);
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        let res = state.do_cmd_mut(1, BotCommand::fill(df).unwrap());
+        assert!(res.is_err());
+        assert_eq!(res, Err(Error::MoveOutOfBounds{c: Coord {x:1, y:0, z:0}}));
+    }
 }
