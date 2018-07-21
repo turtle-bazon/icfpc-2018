@@ -6,6 +6,7 @@ extern crate gfx_text;
 extern crate camera_controllers;
 extern crate vecmath;
 extern crate icfpc2018_lib;
+#[macro_use] extern crate gfx;
 #[macro_use] extern crate log;
 #[macro_use] extern crate clap;
 
@@ -40,6 +41,8 @@ use camera_controllers::{
 
 use icfpc2018_lib::model;
 
+mod voxel;
+
 fn main() {
     env_logger::init();
     match run() {
@@ -66,6 +69,7 @@ enum PistonError {
     // DrawText(gfx_core::factory::CombinedError),
     DebugRendererInit(gfx_debug_draw::DebugRendererError),
     DebugRendererRender(gfx_debug_draw::DebugRendererError),
+    VoxelRenderer(voxel::Error),
 }
 
 const SCREEN_WIDTH: u32 = 640;
@@ -113,6 +117,9 @@ fn run() -> Result<(), Error> {
             .map_err(PistonError::DebugRendererInit)
             .map_err(Error::Piston)?
     };
+    let mut voxel_renderer = voxel::VoxelRenderer::new(&mut window.factory, 64)
+        .map_err(PistonError::VoxelRenderer)
+        .map_err(Error::Piston)?;
 
     let model = mat4_id();
     let mut projection = CameraPerspective {
@@ -191,34 +198,39 @@ fn run() -> Result<(), Error> {
 
                 // Draw matrix
                 for voxel in matrix.filled_voxels() {
-                    let position =
-                        [voxel.x as f32, voxel.y as f32, voxel.z as f32];
-                    let mut draw_edge = |diff_src, diff_dst| {
-                        debug_renderer.draw_line(
-                            vec3_add(position, diff_src),
-                            vec3_add(position, diff_dst),
-                            [0.0, 0.0, 0.0, 1.0],
-                        );
-                    };
-                    draw_edge([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
-                    draw_edge([1.0, 0.0, 0.0], [1.0, 1.0, 0.0]);
-                    draw_edge([1.0, 1.0, 0.0], [0.0, 1.0, 0.0]);
-                    draw_edge([0.0, 1.0, 0.0], [0.0, 0.0, 0.0]);
-                    draw_edge([0.0, 0.0, 1.0], [1.0, 0.0, 1.0]);
-                    draw_edge([1.0, 0.0, 1.0], [1.0, 1.0, 1.0]);
-                    draw_edge([1.0, 1.0, 1.0], [0.0, 1.0, 1.0]);
-                    draw_edge([0.0, 1.0, 1.0], [0.0, 0.0, 1.0]);
-                    draw_edge([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
-                    draw_edge([1.0, 0.0, 0.0], [1.0, 0.0, 1.0]);
-                    draw_edge([1.0, 1.0, 0.0], [1.0, 1.0, 1.0]);
-                    draw_edge([0.0, 1.0, 0.0], [0.0, 1.0, 1.0]);
+                    let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                    let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                    voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 1.0]);
+
+                    // let position =
+                    //     [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                    // let mut draw_edge = |diff_src, diff_dst| {
+                    //     debug_renderer.draw_line(
+                    //         vec3_add(position, diff_src),
+                    //         vec3_add(position, diff_dst),
+                    //         [0.0, 0.0, 0.0, 1.0],
+                    //     );
+                    // };
+                    // draw_edge([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+                    // draw_edge([1.0, 0.0, 0.0], [1.0, 1.0, 0.0]);
+                    // draw_edge([1.0, 1.0, 0.0], [0.0, 1.0, 0.0]);
+                    // draw_edge([0.0, 1.0, 0.0], [0.0, 0.0, 0.0]);
+                    // draw_edge([0.0, 0.0, 1.0], [1.0, 0.0, 1.0]);
+                    // draw_edge([1.0, 0.0, 1.0], [1.0, 1.0, 1.0]);
+                    // draw_edge([1.0, 1.0, 1.0], [0.0, 1.0, 1.0]);
+                    // draw_edge([0.0, 1.0, 1.0], [0.0, 0.0, 1.0]);
+                    // draw_edge([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+                    // draw_edge([1.0, 0.0, 0.0], [1.0, 0.0, 1.0]);
+                    // draw_edge([1.0, 1.0, 0.0], [1.0, 1.0, 1.0]);
+                    // draw_edge([0.0, 1.0, 0.0], [0.0, 1.0, 1.0]);
                 }
 
+                voxel_renderer.render(&mut win.encoder, &mut win.factory, &win.output_color, &win.output_stencil, camera_projection)
+                    .map_err(PistonError::VoxelRenderer)?;
                 debug_renderer.render(&mut win.encoder, &win.output_color, &win.output_stencil, camera_projection)
-                    .map_err(PistonError::DebugRendererRender)
-            } else {
-                Ok(())
+                    .map_err(PistonError::DebugRendererRender)?;
             }
+            Ok(())
         });
         if let Some(result) = maybe_result {
             let () = result.map_err(Error::Piston)?;
