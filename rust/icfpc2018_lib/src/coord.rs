@@ -186,6 +186,27 @@ impl Matrix {
         self.field[offset]
     }
 
+    pub fn contains_filled(&self, region: &Region) -> bool {
+        let mut coord = region.min;
+        loop {
+            if self.is_filled(&coord) {
+                return true;
+            }
+            coord.z += 1;
+            if coord.z >= region.max.z {
+                coord.z = region.min.z;
+                coord.y += 1;
+            }
+            if coord.y >= region.max.y {
+                coord.y = region.min.y;
+                coord.x += 1;
+            }
+            if coord.x >= region.max.x {
+                return false;
+            }
+        }
+    }
+
     pub fn filled_near_neighbours<'a>(&'a self, coord: &Coord) -> impl Iterator<Item = Coord> + 'a {
         coord.near_neighbours()
             .filter(move |c| c.x < self.dim as isize)
