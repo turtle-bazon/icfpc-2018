@@ -438,4 +438,45 @@ mod test {
             max: Coord { x: 2, y: 0, z: 0 },
         }}));
     }
+
+
+    #[test]
+    fn do_cmd_lmove() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        let m1 = LinearCoordDiff::Short { axis: Axis::X, value: 1, };
+        let m2 = LinearCoordDiff::Short { axis: Axis::Y, value: 1, };
+        let res = state.do_cmd_mut(1, BotCommand::lmove(m1,m2).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.bot_pos(&1).unwrap(), Coord {x:1, y:1, z:0});
+        assert_eq!(state.energy, 8);
+        let exp : HashSet<Coord> = [
+            Coord { x: 0, y:0, z: 0, },
+            Coord { x: 1, y:0, z: 0, },
+            Coord { x: 1, y:1, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        let m1 = LinearCoordDiff::Short { axis: Axis::X, value: 2, };
+        let m2 = LinearCoordDiff::Short { axis: Axis::Y, value: 2, };
+        let res = state.do_cmd_mut(1, BotCommand::lmove(m1,m2).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.bot_pos(&1).unwrap(), Coord {x:2, y:2, z:0});
+        assert_eq!(state.energy, 12);
+        let exp : HashSet<Coord> = [
+            Coord { x: 0, y:0, z: 0, },
+            Coord { x: 1, y:0, z: 0, },
+            Coord { x: 2, y:0, z: 0, },
+            Coord { x: 2, y:1, z: 0, },
+            Coord { x: 2, y:2, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+
+        // TODO: Error cases
+    }
 }
