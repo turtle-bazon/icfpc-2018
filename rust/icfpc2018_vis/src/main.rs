@@ -130,7 +130,7 @@ fn run() -> Result<(), Error> {
     }.projection();
 
     let mut orbit_zoom_camera: OrbitZoomCamera<f32> = OrbitZoomCamera::new(
-        [0.0, 0.0, 0.0],
+        [10.0, 10.0, 20.0],
         OrbitZoomCameraSettings::default()
     );
 
@@ -149,7 +149,6 @@ fn run() -> Result<(), Error> {
             return Ok(());
         };
 
-        orbit_zoom_camera.event(&event);
         event.resize(|width, height| {
             // Update projection matrix
             projection = CameraPerspective {
@@ -159,10 +158,11 @@ fn run() -> Result<(), Error> {
                 aspect_ratio: (width as f32) / (height as f32)
             }.projection();
         });
+        orbit_zoom_camera.event(&event);
 
         let maybe_result = window.draw_3d(&event, |win| {
             if let Some(args) = event.render_args() {
-                win.encoder.clear(&win.output_color, [0.3, 0.3, 0.3, 1.0]);
+                win.encoder.clear(&win.output_color, [1.0, 1.0, 1.0, 1.0]);
                 win.encoder.clear_depth(&win.output_stencil, 1.0);
 
                 let camera_view = orbit_zoom_camera.camera(args.ext_dt).orthogonal();
@@ -178,51 +178,47 @@ fn run() -> Result<(), Error> {
                 debug_renderer.draw_line([0.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 1.0, 0.0, 1.0]);
                 debug_renderer.draw_line([0.0, 0.0, 0.0], [0.0, 0.0, 5.0], [0.0, 0.0, 1.0, 1.0]);
 
-                debug_renderer.draw_text_at_position(
-                    "X",
-                    [6.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 1.0],
-                );
+                debug_renderer.draw_text_at_position("X", [6.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
+                debug_renderer.draw_text_at_position("Y", [0.0, 6.0, 0.0], [0.0, 1.0, 0.0, 1.0]);
+                debug_renderer.draw_text_at_position("Z", [0.0, 0.0, 6.0], [0.0, 0.0, 1.0, 1.0]);
 
-                debug_renderer.draw_text_at_position(
-                    "Y",
-                    [0.0, 6.0, 0.0],
-                    [0.0, 1.0, 0.0, 1.0],
-                );
+                {
+                    let mut draw_cube_mesh = |min: [f32; 3], max: [f32; 3], color| {
+                        // front
+                        debug_renderer.draw_line([min[0], min[1], min[2]], [max[0], min[1], min[2]], color);
+                        debug_renderer.draw_line([max[0], min[1], min[2]], [max[0], max[1], min[2]], color);
+                        debug_renderer.draw_line([max[0], max[1], min[2]], [min[0], max[1], min[2]], color);
+                        debug_renderer.draw_line([min[0], max[1], min[2]], [min[0], min[1], min[2]], color);
+                        // back
+                        debug_renderer.draw_line([min[0], min[1], max[2]], [max[0], min[1], max[2]], color);
+                        debug_renderer.draw_line([max[0], min[1], max[2]], [max[0], max[1], max[2]], color);
+                        debug_renderer.draw_line([max[0], max[1], max[2]], [min[0], max[1], max[2]], color);
+                        debug_renderer.draw_line([min[0], max[1], max[2]], [min[0], min[1], max[2]], color);
+                        // missing edges
+                        debug_renderer.draw_line([min[0], min[1], min[2]], [min[0], min[1], max[2]], color);
+                        debug_renderer.draw_line([max[0], min[1], min[2]], [max[0], min[1], max[2]], color);
+                        debug_renderer.draw_line([max[0], max[1], min[2]], [max[0], max[1], max[2]], color);
+                        debug_renderer.draw_line([min[0], max[1], min[2]], [min[0], max[1], max[2]], color);
+                    };
 
-                debug_renderer.draw_text_at_position(
-                    "Z",
-                    [0.0, 0.0, 6.0],
-                    [0.0, 0.0, 1.0, 1.0],
-                );
+                    // Draw bounding volume
+                    let dim = matrix.dim() as f32;
+                    draw_cube_mesh([0.0, 0.0, 0.0], [dim, dim, dim], [0.0, 0.0, 0.0, 1.0]);
 
-                // Draw matrix
-                for voxel in matrix.filled_voxels() {
-                    let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
-                    let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
-                    voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 0.5]);
+                    // Draw floor
+                    voxel_renderer.draw_voxel([0.0, 0.0, 0.0], [dim, -1.0, dim], [0.33, 0.33, 0.33, 1.0]);
 
-                    // let position =
-                    //     [voxel.x as f32, voxel.y as f32, voxel.z as f32];
-                    // let mut draw_edge = |diff_src, diff_dst| {
-                    //     debug_renderer.draw_line(
-                    //         vec3_add(position, diff_src),
-                    //         vec3_add(position, diff_dst),
-                    //         [0.0, 0.0, 0.0, 1.0],
-                    //     );
-                    // };
-                    // draw_edge([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
-                    // draw_edge([1.0, 0.0, 0.0], [1.0, 1.0, 0.0]);
-                    // draw_edge([1.0, 1.0, 0.0], [0.0, 1.0, 0.0]);
-                    // draw_edge([0.0, 1.0, 0.0], [0.0, 0.0, 0.0]);
-                    // draw_edge([0.0, 0.0, 1.0], [1.0, 0.0, 1.0]);
-                    // draw_edge([1.0, 0.0, 1.0], [1.0, 1.0, 1.0]);
-                    // draw_edge([1.0, 1.0, 1.0], [0.0, 1.0, 1.0]);
-                    // draw_edge([0.0, 1.0, 1.0], [0.0, 0.0, 1.0]);
-                    // draw_edge([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
-                    // draw_edge([1.0, 0.0, 0.0], [1.0, 0.0, 1.0]);
-                    // draw_edge([1.0, 1.0, 0.0], [1.0, 1.0, 1.0]);
-                    // draw_edge([0.0, 1.0, 0.0], [0.0, 1.0, 1.0]);
+                    // Draw matrix
+                    for voxel in matrix.filled_voxels() {
+                        // draw voxel
+                        let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                        let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                        voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 0.33]);
+                        // draw mesh
+                        let position =
+                            [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                        draw_cube_mesh(position, vec3_add(position, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
+                    }
                 }
 
                 voxel_renderer.render(&mut win.encoder, &mut win.factory, &win.output_color, &win.output_stencil, camera_projection)
