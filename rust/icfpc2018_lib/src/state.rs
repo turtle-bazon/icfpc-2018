@@ -141,10 +141,34 @@ impl State {
                 bot.pos = cf;
                 self.energy += 2 * d.l_1_norm();
 
-                volatile.insert(cf);
+                for c in Region::from_corners(&c, &cf).coord_set().iter() {
+                    volatile.insert(*c);
+                }
             },
-            BotCommand::LMove{ short1, short2 } => unimplemented!(),
-            BotCommand::Fission{ near, split_m } => unimplemented!(),
+            BotCommand::LMove{ short1, short2 } => {
+                let d1 = short1.to_coord_diff();
+                let d2 = short2.to_coord_diff();
+
+                let cf = c.add(d1);
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+
+                let cff = cf.add(d2);
+                if !self.matrix.is_valid_coord(&cff) {
+                    return Err(Error::MoveOutOfBounds{c: cff})
+                }
+
+                bot.pos = cff;
+                self.energy += 2 * (d1.l_1_norm() + 2 + d2.l_1_norm());
+
+                for c in Region::from_corners(&c, &cf).coord_set().iter() {
+                    volatile.insert(*c);
+                }
+                for c in Region::from_corners(&cf, &cff).coord_set().iter() {
+                    volatile.insert(*c);
+                }
+            },
             BotCommand::Fill{ near } => {
                 let cf = c.add(near);
                 if !self.matrix.is_filled(&cf) {
@@ -154,11 +178,8 @@ impl State {
                 else {
                     self.energy += 6;
                 }
-
-                for c in (Region::from_corners(&c, &cf).coord_set().iter()) {
-                    volatile.insert(*c);
-                }
             },
+            BotCommand::Fission{ near, split_m } => unimplemented!(),
             BotCommand::FusionP{ near } => unimplemented!(),
             BotCommand::FusionS{ near } => unimplemented!(),
 
