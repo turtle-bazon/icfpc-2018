@@ -119,16 +119,25 @@ impl CoordDiff {
 }
 
 impl LinearCoordDiff {
-    pub fn to_coord_diff(&self) -> CoordDiff {
-        let (&axis,&value) = match self {
-            LinearCoordDiff::Short{axis, value} => (axis, value),
-            LinearCoordDiff::Long{axis, value} => (axis, value),
-        };
+    pub fn axis(&self) -> Axis {
+        match self {
+            LinearCoordDiff::Short{axis, value: _} => *axis,
+            LinearCoordDiff::Long{axis, value: _} => *axis,
+        }
+    }
 
-        match axis {
-            Axis::X => CoordDiff(Coord{ x: value, y: 0, z: 0 }),
-            Axis::Y => CoordDiff(Coord{ x: 0, y: value, z: 0 }),
-            Axis::Z => CoordDiff(Coord{ x: 0, y: 0, z: value }),
+    pub fn value(&self) -> M {
+        match self {
+            LinearCoordDiff::Short{axis: _, value} => *value,
+            LinearCoordDiff::Long{axis: _, value} => *value,
+        }
+    }
+
+    pub fn to_coord_diff(&self) -> CoordDiff {
+        match self.axis() {
+            Axis::X => CoordDiff(Coord{ x: self.value(), y: 0, z: 0 }),
+            Axis::Y => CoordDiff(Coord{ x: 0, y: self.value(), z: 0 }),
+            Axis::Z => CoordDiff(Coord{ x: 0, y: 0, z: self.value() }),
         }
     }
 }
@@ -246,7 +255,7 @@ impl fmt::Debug for Matrix {
 
 #[cfg(test)]
 mod tests {
-    use super::{Coord, Resolution, Matrix};
+    use super::{Coord, Resolution, Matrix, LinearCoordDiff, Axis};
 
     #[test]
     fn is_grounded_single_empty() {
@@ -330,5 +339,56 @@ mod tests {
                 Coord { x: 1, y: 2, z: 1, },
             ]);
         assert!(!matrix.all_voxels_are_grounded());
+    }
+
+    #[test]
+    fn is_linear_to_coord_diff_works_fine() {
+        let lin = LinearCoordDiff::Short {
+            axis: Axis::X, value: 2,
+        };
+        let diff = lin.to_coord_diff();
+        assert_eq!(diff.0.x, 2);
+        assert_eq!(diff.0.y, 0);
+        assert_eq!(diff.0.z, 0);
+
+        let lin = LinearCoordDiff::Short {
+            axis: Axis::Y, value: 3,
+        };
+        let diff = lin.to_coord_diff();
+        assert_eq!(diff.0.x, 0);
+        assert_eq!(diff.0.y, 3);
+        assert_eq!(diff.0.z, 0);
+
+        let lin = LinearCoordDiff::Short {
+            axis: Axis::Z, value: 4,
+        };
+        let diff = lin.to_coord_diff();
+        assert_eq!(diff.0.x, 0);
+        assert_eq!(diff.0.y, 0);
+        assert_eq!(diff.0.z, 4);
+
+        let lin = LinearCoordDiff::Long {
+            axis: Axis::X, value: 10,
+        };
+        let diff = lin.to_coord_diff();
+        assert_eq!(diff.0.x, 10);
+        assert_eq!(diff.0.y, 0);
+        assert_eq!(diff.0.z, 0);
+
+        let lin = LinearCoordDiff::Long {
+            axis: Axis::Y, value: 11,
+        };
+        let diff = lin.to_coord_diff();
+        assert_eq!(diff.0.x, 0);
+        assert_eq!(diff.0.y, 11);
+        assert_eq!(diff.0.z, 0);
+
+        let lin = LinearCoordDiff::Long {
+            axis: Axis::Z, value: 12,
+        };
+        let diff = lin.to_coord_diff();
+        assert_eq!(diff.0.x, 0);
+        assert_eq!(diff.0.y, 0);
+        assert_eq!(diff.0.z, 12);
     }
 }
