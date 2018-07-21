@@ -10,7 +10,6 @@ extern crate icfpc2018_lib;
 #[macro_use] extern crate clap;
 
 use std::{
-    io,
     process,
 };
 
@@ -31,7 +30,7 @@ use piston_window::{
     Key,
 };
 use gfx_debug_draw::DebugRenderer;
-use vecmath::mat4_id;
+use vecmath::{mat4_id, vec3_add};
 use camera_controllers::{
     OrbitZoomCamera,
     OrbitZoomCameraSettings,
@@ -95,7 +94,7 @@ fn run() -> Result<(), Error> {
     let model_file = matches.value_of("model")
         .ok_or(Error::MissingParameter("model"))?;
 
-    let _matrix = model::read_model_file(model_file)
+    let matrix = model::read_model_file(model_file)
         .map_err(Error::Model)?;
 
     let opengl = OpenGL::V4_1;
@@ -189,6 +188,31 @@ fn run() -> Result<(), Error> {
                     [0.0, 0.0, 6.0],
                     [0.0, 0.0, 1.0, 1.0],
                 );
+
+                // Draw matrix
+                for voxel in matrix.filled_voxels() {
+                    let position =
+                        [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                    let mut draw_edge = |diff_src, diff_dst| {
+                        debug_renderer.draw_line(
+                            vec3_add(position, diff_src),
+                            vec3_add(position, diff_dst),
+                            [0.0, 0.0, 0.0, 1.0],
+                        );
+                    };
+                    draw_edge([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+                    draw_edge([1.0, 0.0, 0.0], [1.0, 1.0, 0.0]);
+                    draw_edge([1.0, 1.0, 0.0], [0.0, 1.0, 0.0]);
+                    draw_edge([0.0, 1.0, 0.0], [0.0, 0.0, 0.0]);
+                    draw_edge([0.0, 0.0, 1.0], [1.0, 0.0, 1.0]);
+                    draw_edge([1.0, 0.0, 1.0], [1.0, 1.0, 1.0]);
+                    draw_edge([1.0, 1.0, 1.0], [0.0, 1.0, 1.0]);
+                    draw_edge([0.0, 1.0, 1.0], [0.0, 0.0, 1.0]);
+                    draw_edge([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+                    draw_edge([1.0, 0.0, 0.0], [1.0, 0.0, 1.0]);
+                    draw_edge([1.0, 1.0, 0.0], [1.0, 1.0, 1.0]);
+                    draw_edge([0.0, 1.0, 0.0], [0.0, 1.0, 1.0]);
+                }
 
                 debug_renderer.render(&mut win.encoder, &win.output_color, &win.output_stencil, camera_projection)
                     .map_err(PistonError::DebugRendererRender)
