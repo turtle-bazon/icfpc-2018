@@ -184,7 +184,9 @@ impl State {
             BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
             BotCommand::FusionP{ near: _ } => unimplemented!(),
             BotCommand::FusionS{ near: _ } => unimplemented!(),
-
+            BotCommand::Void{ near: _ } => unimplemented!(),
+            BotCommand::GFill{ near: _, far: _ } => unimplemented!(),
+            BotCommand::GVoid{ near: _, far: _ } => unimplemented!(),
         }
         Ok(volatile)
     }
@@ -239,7 +241,9 @@ impl State {
             BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
             BotCommand::FusionP{ near: _ } => unimplemented!(),
             BotCommand::FusionS{ near: _ } => unimplemented!(),
-
+            BotCommand::Void{ near: _ } => unimplemented!(),
+            BotCommand::GFill{ near: _, far: _ } => unimplemented!(),
+            BotCommand::GVoid{ near: _, far: _ } => unimplemented!(),
         }
     }
 
