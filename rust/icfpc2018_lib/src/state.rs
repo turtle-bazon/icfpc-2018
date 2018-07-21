@@ -49,6 +49,7 @@ pub enum WellformedStatus {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Error {
     StateNotWellformed{status: WellformedStatus},
+    InvalidBotid{bid: Bid},
     CommandsInterfere,
     HaltNotAtZeroCoord,
     HaltTooManyBots,
@@ -99,20 +100,24 @@ impl State {
         WellformedStatus::Wellformed
     }
 
-    pub fn do_cmd_mut(&mut self, cmd: BotCommand, bot: &mut Bot) -> Result<HashSet<Coord>, Error> {
-        let c = bot.pos;
+    pub fn do_cmd_mut(&mut self, bid: Bid, cmd: BotCommand) -> Result<HashSet<Coord>, Error> {
+        if let None = self.bots.get(&bid) {
+            return Err(Error::InvalidBotid{bid})
+        }
+
+        let c = self.bots.get(&bid).unwrap().pos;
         let mut volatile: HashSet<Coord> = [c].iter().cloned().collect();
 
         match cmd {
             BotCommand::Halt => {
                 let check_coord = c.x == 0 || c.y == 0 || c.z == 0;
                 let bot_ids: Vec<Bid> = self.bots.keys().cloned().collect();
-                let check_the_only_bot = bot_ids == [1];
+                let check_the_only_bot = bot_ids == [bid];
                 let check_low = self.harmonics == Harmonics::Low;
 
                 match (check_coord, check_the_only_bot, check_low) {
                     (true, true, true) => {
-                        self.bots.remove(&1);
+                        self.bots.remove(&bid);
                     },
                     (false, _, _) => return Err(Error::HaltNotAtZeroCoord),
                     (_, false, _) => return Err(Error::HaltTooManyBots),
@@ -143,7 +148,7 @@ impl State {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
                 }
 
-                bot.pos = cf;
+                self.bots.get_mut(&bid).unwrap().pos = cf;
                 self.energy += 2 * d.l_1_norm();
 
                 for c in volatile_reg.coord_set().iter() {
@@ -172,7 +177,7 @@ impl State {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg2})
                 }
 
-                bot.pos = cff;
+                self.bots.get_mut(&bid).unwrap().pos = cff;
                 self.energy += 2 * (d1.l_1_norm() + 2 + d2.l_1_norm());
 
                 for c in volatile_reg.coord_set().union(&volatile_reg2.coord_set()) {
@@ -249,4 +254,13 @@ mod test {
         assert_eq!(bot.pos, Coord { x:0, y:0, z:0 });
         assert_eq!(bot.seeds, vec![2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]);
     }
+
+    // #[test]
+    // fn do_cmd_halt() {
+    //     let matrix = Matrix::new(Resolution(4));
+    //     let mut state = State::new(matrix, vec![]);
+
+    //     let res = state.do_cmd_mut(1, BotCommand::halt().unwrap());
+
+    // }
 }
