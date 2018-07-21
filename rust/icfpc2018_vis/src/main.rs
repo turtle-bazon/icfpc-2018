@@ -99,7 +99,7 @@ fn run() -> Result<(), Error> {
              .long("model")
              .value_name("FILE")
              .help("Model file to visualize")
-             .default_value("../../problems/LA001_tgt.mdl")
+             .default_value("../../problems/FA001_tgt.mdl")
              .takes_value(true))
         .get_matches();
 
@@ -123,11 +123,11 @@ fn run() -> Result<(), Error> {
         let text_renderer = {
             gfx_text::new(window.factory.clone()).unwrap()
         };
-        DebugRenderer::new(window.factory.clone(), text_renderer, 64)
+        DebugRenderer::new(window.factory.clone(), text_renderer, 65536)
             .map_err(PistonError::DebugRendererInit)
             .map_err(Error::Piston)?
     };
-    let mut voxel_renderer = voxel::VoxelRenderer::new(window.factory.clone(), 64)
+    let mut voxel_renderer = voxel::VoxelRenderer::new(window.factory.clone(), 65536)
         .map_err(PistonError::VoxelRenderer)
         .map_err(Error::Piston)?;
 
