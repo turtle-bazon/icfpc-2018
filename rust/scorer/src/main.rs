@@ -28,12 +28,14 @@ fn main() -> Result<(),Error> {
              .short("m")
              .long("model")
              .help("Model file (In)",)
+             .default_value("../../problems/FA001_tgt.mdl")
              .takes_value(true))
         .arg(Arg::with_name("trace")
              .display_order(1)
              .short("t")
              .long("trace")
              .help("Original trace (In)",)
+             .default_value("../../traces/FA001.nbt")
              .takes_value(true))
 
         // .arg(Arg::with_name("optimized")
@@ -49,12 +51,12 @@ fn main() -> Result<(),Error> {
     let trace_filename = value_t!(matches, "trace", String).map_err(Error::Args)?;
 
     let mut model = kernel::model::read_model_file(model_filename).unwrap();
-    
-    
+
+
     // let original = value_t!(matches, "original", String).map_err(Error::Args)?;
     // let optimized = value_t!(matches, "optimized", String).map_err(Error::Args)?;
 
-    
+
     let mut f = File::open(&trace_filename).map_err(Error::Io)?;
     let mut buffer = Vec::new();
     f.read_to_end(&mut buffer).map_err(Error::Io)?;
@@ -79,7 +81,7 @@ fn main() -> Result<(),Error> {
             return Ok(())
         }
     }
-    
+
 }
 
 
