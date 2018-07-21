@@ -150,10 +150,40 @@ fn random_edge_paths<R>(start: Coord, finish: Coord, rng: &mut R) -> impl Iterat
         })
 }
 
+fn random_valid_edge_path<VI, R>(
+    start: Coord,
+    finish: Coord,
+    matrix: &Matrix,
+    volatile: VI,
+    rng: &mut R,
+)
+    -> Option<(EdgesJump, Region, Region, Region)> where
+    VI: Iterator<Item = Region> + Clone,
+    R: Rng,
+{
+    random_edge_paths(start, finish, rng)
+        .map(|jump| (
+            Region::from_corners(&jump.start, &jump.mid_a),
+            Region::from_corners(&jump.mid_a, &jump.mid_b),
+            Region::from_corners(&jump.mid_b, &jump.finish),
+            jump,
+        ))
+        .filter(move |&(ref ra, ref rb, ref rc, _)| {
+            !volatile
+                .clone()
+                .any(|reg| reg.intersects(&ra) || reg.intersects(&rb) || reg.intersects(rc))
+                && !matrix.contains_filled(&ra)
+                && !matrix.contains_filled(&rb)
+                && !matrix.contains_filled(&rc)
+        })
+        .map(|(ra, rb, rc, j)| (j, ra, rb, rc))
+        .next()
+}
+
 #[cfg(test)]
 mod test {
     use rand;
-    use super::super::super::coord::Coord;
+    use super::super::super::coord::{Coord, Matrix, Region, Resolution};
     use super::EdgesJump;
 
     #[test]
@@ -199,5 +229,34 @@ mod test {
             mid_a: Coord { x: 0, y: 0, z: 2, },
             mid_b: Coord { x: 0, y: 2, z: 2, },
         }));
+    }
+
+    #[test]
+    fn random_valid_edge_path() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 0, },
+            Coord { x: 0, y: 0, z: 1, },
+        ]);
+        let path = super::random_valid_edge_path(
+            Coord { x: 0, y: 0, z: 0, },
+            Coord { x: 2, y: 2, z: 2, },
+            &matrix,
+            Some(Region::from_corners(
+                &Coord { x: 1, y: 2, z: 0, },
+                &Coord { x: 2, y: 2, z: 0, },
+            )).into_iter(),
+            &mut rand::thread_rng(),
+        );
+        assert_eq!(path, Some((
+            EdgesJump {
+                start: Coord { x: 0, y: 0, z: 0 },
+                mid_a: Coord { x: 0, y: 2, z: 0 },
+                mid_b: Coord { x: 0, y: 2, z: 2 },
+                finish: Coord { x: 2, y: 2, z: 2 },
+            },
+            Region { min: Coord { x: 0, y: 0, z: 0 }, max: Coord { x: 0, y: 2, z: 0 } },
+            Region { min: Coord { x: 0, y: 2, z: 0 }, max: Coord { x: 0, y: 2, z: 2 } },
+            Region { min: Coord { x: 0, y: 2, z: 2 }, max: Coord { x: 2, y: 2, z: 2 } },
+        )));
     }
 }
