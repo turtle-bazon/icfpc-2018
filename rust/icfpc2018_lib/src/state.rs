@@ -562,8 +562,10 @@ mod test {
             BotCommand::flip().unwrap(),
             BotCommand::smove(LinearCoordDiff::Long { axis: Axis::X, value: 2, }).unwrap(),
             BotCommand::smove(LinearCoordDiff::Long { axis: Axis::X, value: -2, }).unwrap(),
+            BotCommand::flip().unwrap(),
             BotCommand::halt().unwrap(),
             ];
+        state.step_mut(&mut trace).unwrap();
         state.step_mut(&mut trace).unwrap();
         state.step_mut(&mut trace).unwrap();
         state.step_mut(&mut trace).unwrap();
