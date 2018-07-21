@@ -238,6 +238,12 @@ impl Matrix {
         self.filled.insert(coord);
     }
 
+    pub fn set_void(&mut self, &coord: &Coord) {
+        let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
+        self.field.set(offset, false);
+        self.filled.remove(&coord);
+    }
+
     pub fn is_filled(&self, coord: &Coord) -> bool {
         let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
         assert!(offset < self.field.len());
