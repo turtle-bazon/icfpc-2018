@@ -2,8 +2,8 @@ use std::{cmp, iter};
 use std::collections::HashSet;
 use bit_vec::BitVec;
 
-const LOWER_LIMIT: isize = 0;
-const UPPER_LIMIT: isize = 250;
+pub const LOWER_LIMIT: isize = 0;
+pub const UPPER_LIMIT: isize = 250;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Axis { X, Y, Z, }
@@ -131,6 +131,12 @@ impl CoordDiff {
 }
 
 impl Region {
+    pub fn contains(&self, coord: &Coord) -> bool {
+        coord.x >= self.min.x && coord.x <= self.max.x &&
+            coord.y >= self.min.y && coord.y <= self.max.y &&
+            coord.z >= self.min.z && coord.z <= self.max.z
+    }
+
     pub fn dimension(&self) -> RegionDim {
         match (self.min.x == self.max.x, self.min.y == self.max.y, self.min.z == self.max.z) {
             (true, true, true) =>
