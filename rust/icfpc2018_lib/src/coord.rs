@@ -81,6 +81,21 @@ impl Coord {
             .filter(|c| c.y >= LOWER_LIMIT && c.y <= UPPER_LIMIT)
             .filter(|c| c.z >= LOWER_LIMIT && c.z <= UPPER_LIMIT)
     }
+
+    pub fn get_neighbours(&self) -> impl Iterator<Item = Coord> {
+        let slf = self.clone();
+        iproduct!(-1..1, -1..1, -1..1)
+            .filter_map(move |(dx,dy,dz)| {
+                let dc = CoordDiff(Coord{ x: dx, y: dy, z: dz });
+                match dc.is_near() {
+                    true => Some(slf.add(dc)),
+                    false => None,
+                }
+            })
+            .filter(|c| c.x >= LOWER_LIMIT && c.x <= UPPER_LIMIT)
+            .filter(|c| c.y >= LOWER_LIMIT && c.y <= UPPER_LIMIT)
+            .filter(|c| c.z >= LOWER_LIMIT && c.z <= UPPER_LIMIT)
+    }
 }
 
 impl CoordDiff {
