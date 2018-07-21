@@ -127,7 +127,7 @@ fn run() -> Result<(), Error> {
             .map_err(PistonError::DebugRendererInit)
             .map_err(Error::Piston)?
     };
-    let mut voxel_renderer = voxel::VoxelRenderer::new(&mut window.factory, 64)
+    let mut voxel_renderer = voxel::VoxelRenderer::new(window.factory.clone(), 64)
         .map_err(PistonError::VoxelRenderer)
         .map_err(Error::Piston)?;
 
@@ -262,7 +262,7 @@ fn run() -> Result<(), Error> {
                         // draw voxel
                         let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
                         let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
-                        voxel_renderer.draw_voxel(min_point, max_point, [0.54, 0.27, 0.07, 0.85]);
+                        voxel_renderer.draw_voxel(min_point, max_point, [0.54, 0.27, 0.07, 1.0]);
                         // draw mesh
                         let position =
                             [voxel.x as f32, voxel.y as f32, voxel.z as f32];
@@ -306,6 +306,7 @@ fn run() -> Result<(), Error> {
                 }
 
                 let total = script.len();
+                let mut oi = 0;
                 for (i, cmd) in script.iter().enumerate() {
                     if (i as isize) < (total as isize) - 10 {
                         continue;
@@ -313,12 +314,13 @@ fn run() -> Result<(), Error> {
 
                     debug_renderer.draw_text_on_screen(
                         &format!("{}: {:?}", i, cmd),
-                        [10, 10 + i as i32 * 20],
+                        [10, 10 + oi * 20],
                         [0.0, 0.0, 0.0, 1.0],
                     );
+                    oi += 1;
                 }
 
-                voxel_renderer.render(&mut win.encoder, &mut win.factory, &win.output_color, &win.output_stencil, camera_projection)
+                voxel_renderer.render(&mut win.encoder, &win.output_color, &win.output_stencil, camera_projection)
                     .map_err(PistonError::VoxelRenderer)?;
                 debug_renderer.render(&mut win.encoder, &win.output_color, &win.output_stencil, camera_projection)
                     .map_err(PistonError::DebugRendererRender)?;
@@ -389,6 +391,52 @@ fn run() -> Result<(), Error> {
                         }
                         filled_matrix.set_filled(&coord);
                         script.push(BotCommand::fill(nanobot.diff(&coord)).unwrap());
+                    }
+                },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::L), state: ButtonState::Release, .. })) =>
+                if let CursorState::Filling = cursor_state {
+                    let diff = cursor.diff(&nanobot);
+                    loop {
+                        let mut success = false;
+                        for coord in nanobot.get_neighbours() {
+                            if coord.y >= nanobot.y {
+                                continue;
+                            }
+                            if filled_matrix.is_filled(&coord) {
+                                continue;
+                            }
+                            if !matrix.is_filled(&coord) {
+                                continue;
+                            }
+                            filled_matrix.set_filled(&coord);
+                            script.push(BotCommand::fill(nanobot.diff(&coord)).unwrap());
+                            success = true;
+                        }
+                        if !success {
+                            break;
+                        }
+                        if !filled_matrix.is_filled(&cursor) {
+                            let maybe_route = router::plan_route(
+                                &nanobot,
+                                &cursor,
+                                &filled_matrix,
+                                None.into_iter(),
+                            );
+                            if let Some((route, _)) = maybe_route {
+                                last_route = Some(route.iter().map(|mv| mv.coord).collect());
+                                script.extend(route.into_iter().flat_map(|mv| mv.cmd_performed));
+                                nanobot = cursor;
+                            } else {
+                                break;
+                            }
+                        }
+                        let next = cursor.add(diff);
+                        let dim = matrix.dim() as isize;
+                        if next.x >= 0 && next.x < dim && next.y >= 0 && next.y < dim && next.z >= 0 && next.z < dim {
+                            cursor = next;
+                        } else {
+                            break;
+                        }
                     }
                 },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::H), state: ButtonState::Release, .. })) =>
