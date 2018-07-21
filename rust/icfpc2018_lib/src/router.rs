@@ -9,7 +9,6 @@ use super::{
         CoordDiff,
         LinearCoordDiff,
     },
-    state::State,
     cmd::BotCommand,
 };
 use pathfinding::directed::astar;
@@ -20,21 +19,22 @@ pub struct Move {
     pub cmd_performed: Option<BotCommand>,
 }
 
-pub fn plan_route(bot_start: &Coord, bot_finish: &Coord, state: &State, volatile: &[Region]) -> Option<Vec<BotCommand>> {
+pub fn plan_route<VI>(&bot_start: &Coord, bot_finish: &Coord, matrix: &Matrix, volatile: VI) -> Option<(Vec<Move>, usize)> where
+    VI: Iterator<Item = Region> + Clone
+{
+    let start = Move { coord: bot_start, cmd_performed: None, };
 
-    // astar::astar(
-    //     coord,
-    //     |coord| self.filled_near_neighbours(coord)
-    //         .map(|neighbour| (neighbour, neighbour.y)),
-    //     |coord| coord.y,
-    //     |coord| coord.y == 0,
-    // )
-
-    unimplemented!()
+    astar::astar(
+        &start,
+        |mv| mv.moves_allowed(matrix, volatile.clone())
+            .map(|mvn| (mvn, mvn.coord.diff(bot_finish).l_inf_norm())),
+        |mv| mv.coord.diff(bot_finish).l_inf_norm(),
+        |mv| &mv.coord == bot_finish,
+    )
 }
 
 impl Move {
-    fn moves_allowed<'a, VI>(&self, matrix: &'a Matrix, volatile: VI) -> impl Iterator<Item = Move> + 'a where
+    pub fn moves_allowed<'a, VI>(&self, matrix: &'a Matrix, volatile: VI) -> impl Iterator<Item = Move> + 'a where
         VI: Iterator<Item = Region> + Clone + 'a
     {
         let coord = self.coord;
@@ -178,5 +178,44 @@ mod tests {
                 cmd_performed: Some(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 2 } }),
             },
         ]);
+    }
+
+    #[test]
+    fn plan_route() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![Coord { x: 1, y: 0, z: 0, }]);
+        let route = super::plan_route(
+            &Coord { x: 0, y: 0, z: 0, },
+            &Coord { x: 2, y: 2, z: 2, },
+            &matrix,
+            Some(Region { min: Coord { x: 0, y: 1, z: 0, }, max: Coord { x: 0, y: 1, z: 0, }, }).into_iter(),
+        );
+        assert_eq!(
+            route,
+            Some((
+                vec![
+                    Move {
+                        coord: Coord { x: 0, y: 0, z: 0 },
+                        cmd_performed: None,
+                    },
+                    Move {
+                        coord: Coord { x: 0, y: 0, z: 1 },
+                        cmd_performed: Some(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } }),
+                    },
+                    Move {
+                        coord: Coord { x: 2, y: 0, z: 1 },
+                        cmd_performed: Some(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 2 } }),
+                    },
+                    Move {
+                        coord: Coord { x: 2, y: 2, z: 1 },
+                        cmd_performed: Some(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: 2 } }),
+                    },
+                    Move {
+                        coord: Coord { x: 2, y: 2, z: 2 },
+                        cmd_performed: Some(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } }),
+                    },
+                ],
+                5,
+            ))
+        )
     }
 }
