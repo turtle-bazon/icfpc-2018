@@ -105,6 +105,90 @@ impl State {
         self.bots.get(bid).map(|bot| bot.pos)
     }
 
+    pub fn check_cmd(&self, bid: &Bid, cmd: &BotCommand) -> Result<HashSet<Coord>, Error> {
+        if let None = self.bots.get(bid) {
+            return Err(Error::InvalidBid{bid:*bid})
+        }
+
+        let c = self.bots.get(&bid).unwrap().pos;
+        let mut volatile: HashSet<Coord> = [c].iter().cloned().collect();
+
+        match cmd {
+            BotCommand::Halt => {
+                let check_coord = c.x == 0 && c.y == 0 && c.z == 0;
+                let bot_ids: Vec<Bid> = self.bots.keys().cloned().collect();
+                let check_the_only_bot = bot_ids == [*bid];
+                let check_low = self.harmonics == Harmonics::Low;
+
+                match (check_coord, check_the_only_bot, check_low) {
+                    (true, true, true) => (),
+                    (false, _, _) => return Err(Error::HaltNotAtZeroCoord),
+                    (_, false, _) => return Err(Error::HaltTooManyBots),
+                    (_, _, false) => return Err(Error::HaltNotInLow),
+                }
+            },
+            BotCommand::Wait => (),
+            BotCommand::Flip => (),
+            BotCommand::SMove{ long } => {
+                let d = long.to_coord_diff();
+                let cf = c.add(d);
+                let volatile_reg = Region::from_corners(&c, &cf);
+
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+
+                if self.matrix.contains_filled(&volatile_reg) {
+                    return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
+                }
+
+                for c in volatile_reg.coord_set().iter() {
+                    volatile.insert(*c);
+                }
+            },
+            BotCommand::LMove{ short1, short2 } => {
+                let d1 = short1.to_coord_diff();
+                let d2 = short2.to_coord_diff();
+
+                let cf = c.add(d1);
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+                let volatile_reg = Region::from_corners(&c, &cf);
+                if self.matrix.contains_filled(&volatile_reg) {
+                    return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
+                }
+
+                let cff = cf.add(d2);
+                if !self.matrix.is_valid_coord(&cff) {
+                    return Err(Error::MoveOutOfBounds{c: cff})
+                }
+                let volatile_reg2 = Region::from_corners(&cf, &cff);
+                if self.matrix.contains_filled(&volatile_reg2) {
+                    return Err(Error::MoveRegionIsNotVoid{r: volatile_reg2})
+                }
+
+                for c in volatile_reg.coord_set().union(&volatile_reg2.coord_set()) {
+                    volatile.insert(*c);
+                }
+            },
+            BotCommand::Fill{ near } => {
+                let n = *near;
+                let cf = c.add(n);
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+
+                volatile.insert(cf);
+            },
+            BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
+            BotCommand::FusionP{ near: _ } => unimplemented!(),
+            BotCommand::FusionS{ near: _ } => unimplemented!(),
+
+        }
+        Ok(volatile)
+    }
+
     pub fn do_cmd_mut(&mut self, bid: &Bid, cmd: &BotCommand) -> Result<HashSet<Coord>, Error> {
         if let None = self.bots.get(bid) {
             return Err(Error::InvalidBid{bid:*bid})
