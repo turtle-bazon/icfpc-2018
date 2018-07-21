@@ -21,7 +21,7 @@ submission: check ${BUILD_NAME}.zip ${BUILD_NAME}.zip.hash
 		--data-urlencode action=submit \
 		--data-urlencode privateID=$(TEAM_ID) \
 		--data-urlencode submissionURL=$(SUBMISSION_WEB_URL)$(BUILD_NAME).zip \
-		--data-urlencode submissionSHA=$(shell awk '{print $1;}' $(BUILD_NAME).zip.hash) \
+		--data-urlencode submissionSHA=$(shell cut -f1 -d ' ' $(BUILD_NAME).zip.hash) \
 	https://script.google.com/macros/s/AKfycbzQ7Etsj7NXCN5thGthCvApancl5vni5SFsb1UoKgZQwTzXlrH7/exec
 
 check: problems traces
