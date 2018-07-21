@@ -293,4 +293,22 @@ mod test {
         assert_eq!(state.energy, 0);
         assert_eq!(res, Err(Error::InvalidBid{bid:2}));
     }
+
+    #[test]
+    fn do_cmd_wait() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        let res = state.do_cmd_mut(1, BotCommand::wait().unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.energy, 0);
+        let exp : HashSet<Coord> = [Coord { x: 0, y:0, z: 0, }].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let res = state.do_cmd_mut(2, BotCommand::wait().unwrap());
+        assert!(res.is_err());
+        assert_eq!(state.energy, 0);
+        assert_eq!(res, Err(Error::InvalidBid{bid:2}));
+    }
+
 }
