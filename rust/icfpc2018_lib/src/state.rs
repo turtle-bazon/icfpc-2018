@@ -66,7 +66,7 @@ impl State {
 
         bots.insert(1, Bot {
             pos: Coord { x:0, y:0, z:0 },
-            seeds: (2..21).collect(),
+            seeds: (2..41).collect(),
         });
 
         State {
@@ -355,7 +355,8 @@ mod test {
         assert_eq!(st.bots.len(), 1);
         let bot = st.bots.get(&1).unwrap();
         assert_eq!(bot.pos, Coord { x:0, y:0, z:0 });
-        assert_eq!(bot.seeds, vec![2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]);
+        let seeds : Vec<Bid> = (2..41).collect();
+        assert_eq!(bot.seeds, seeds);
     }
 
     #[test]
