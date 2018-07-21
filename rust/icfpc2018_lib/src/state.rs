@@ -100,6 +100,10 @@ impl State {
         WellformedStatus::Wellformed
     }
 
+    pub fn bot_pos(&self, bid: &Bid) -> Option<Coord> {
+        self.bots.get(bid).map(|bot| bot.pos)
+    }
+
     pub fn do_cmd_mut(&mut self, bid: Bid, cmd: BotCommand) -> Result<HashSet<Coord>, Error> {
         if let None = self.bots.get(&bid) {
             return Err(Error::InvalidBid{bid})
@@ -144,7 +148,7 @@ impl State {
                     return Err(Error::MoveOutOfBounds{c: cf})
                 }
 
-                if !self.matrix.contains_filled(&volatile_reg) {
+                if self.matrix.contains_filled(&volatile_reg) {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
                 }
 
@@ -240,6 +244,8 @@ mod test {
             CoordDiff,
             Matrix,
             Resolution,
+            LinearCoordDiff,
+            Axis,
         }
     };
 
@@ -378,5 +384,58 @@ mod test {
         let res = state.do_cmd_mut(1, BotCommand::fill(df).unwrap());
         assert!(res.is_err());
         assert_eq!(res, Err(Error::MoveOutOfBounds{c: Coord {x:1, y:0, z:0}}));
+    }
+
+    #[test]
+    fn do_cmd_smove() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        let lin = LinearCoordDiff::Long { axis: Axis::X, value: 1, };
+        let res = state.do_cmd_mut(1, BotCommand::smove(lin).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.bot_pos(&1).unwrap(), Coord {x:1, y:0, z:0});
+        assert_eq!(state.energy, 2);
+        let exp : HashSet<Coord> = [
+            Coord { x: 0, y:0, z: 0, },
+            Coord { x: 1, y:0, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let lin = LinearCoordDiff::Long { axis: Axis::Y, value: 3, };
+        state.energy = 0; // reset energy
+        let res = state.do_cmd_mut(1, BotCommand::smove(lin).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.bot_pos(&1).unwrap(), Coord {x:1, y:3, z:0});
+        assert_eq!(state.energy, 6);
+        let exp : HashSet<Coord> = [
+            Coord { x: 1, y:0, z: 0, },
+            Coord { x: 1, y:1, z: 0, },
+            Coord { x: 1, y:2, z: 0, },
+            Coord { x: 1, y:3, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        // Error cases
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        let lin = LinearCoordDiff::Long { axis: Axis::X, value: 4, };
+        let res = state.do_cmd_mut(1, BotCommand::smove(lin).unwrap());
+        assert!(res.is_err());
+        assert_eq!(state.bot_pos(&1).unwrap(), Coord {x:0, y:0, z:0});
+        assert_eq!(state.energy, 0);
+        assert_eq!(res, Err(Error::MoveOutOfBounds{c: Coord { x: 4, y:0, z: 0, }}));
+
+        state.matrix.set_filled(&Coord {x:1, y:0, z:0});
+        let lin = LinearCoordDiff::Long { axis: Axis::X, value: 2, };
+        let res = state.do_cmd_mut(1, BotCommand::smove(lin).unwrap());
+        assert!(res.is_err());
+        assert_eq!(state.bot_pos(&1).unwrap(), Coord {x:0, y:0, z:0});
+        assert_eq!(state.energy, 0);
+        assert_eq!(res,Err(Error::MoveRegionIsNotVoid { r: Region {
+            min: Coord { x: 0, y: 0, z: 0 },
+            max: Coord { x: 2, y: 0, z: 0 },
+        }}));
     }
 }
