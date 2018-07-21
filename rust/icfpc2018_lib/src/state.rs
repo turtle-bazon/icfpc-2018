@@ -101,13 +101,11 @@ impl State {
     }
 
     pub fn do_cmd_mut(&mut self, bid: Bid, cmd: BotCommand) -> Result<HashSet<Coord>, Error> {
-        let maybe_bot = self.bots.get_mut(&bid);
-        let bot: &mut Bot = match maybe_bot {
-            None => return Err(Error::InvalidBotid{bid}),
-            Some(bot) => bot,
+        if let None = self.bots.get(&bid) {
+            return Err(Error::InvalidBotid{bid})
+        }
 
-        };
-        let c = bot.pos;
+        let c = self.bots.get(&bid).unwrap().pos;
         let mut volatile: HashSet<Coord> = [c].iter().cloned().collect();
 
         match cmd {
@@ -150,7 +148,7 @@ impl State {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
                 }
 
-                bot.pos = cf;
+                self.bots.get_mut(&bid).unwrap().pos = cf;
                 self.energy += 2 * d.l_1_norm();
 
                 for c in volatile_reg.coord_set().iter() {
@@ -179,7 +177,7 @@ impl State {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg2})
                 }
 
-                bot.pos = cff;
+                self.bots.get_mut(&bid).unwrap().pos = cff;
                 self.energy += 2 * (d1.l_1_norm() + 2 + d2.l_1_norm());
 
                 for c in volatile_reg.coord_set().union(&volatile_reg2.coord_set()) {
