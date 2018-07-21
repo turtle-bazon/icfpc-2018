@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 
 use icfpc2018_lib as kernel;
 use kernel::cmd::BotCommand;
-use kernel::coord::{LinearCoordDiff,Axis,M,Coord};
+use kernel::coord::{LinearCoordDiff,Axis,M,Coord,CoordDiff};
 
 #[derive(Debug)]
 enum Error {
@@ -95,6 +95,36 @@ fn optimize_moves(movings: &mut Vec<Move>) {
     }
 }
 
+fn optimize_lld_pairs(cmds: &mut Vec<BotCommand>) {
+    loop {
+        let mut tmp = None;
+        for i in (0 .. cmds.len()-1) {
+            match (cmds[i],cmds[i+1]) {
+                (BotCommand::SMove{ long: long1 },BotCommand::SMove{ long: long2 }) if (long1.get_value().abs()<=5)&&(long2.get_value().abs()<=5) => {
+                    let short1 = LinearCoordDiff::Short{
+                        axis: long1.get_axis(),
+                        value: long1.get_value(),
+                    };
+                    let short2 = LinearCoordDiff::Short{
+                        axis: long2.get_axis(),
+                        value: long2.get_value(),
+                    };
+                    tmp = Some((i,BotCommand::lmove(short1,short2).unwrap()));
+                    
+                    break;    
+                },
+                (_,_) => continue,
+            }
+        }
+        match tmp {
+            None => break,
+            Some((idx,cmd)) => {
+                cmds.remove(idx);
+                cmds[idx] = cmd;
+            }
+        }
+    }
+}
 
 struct Optimizer<I> {
     cmds: I,
@@ -131,6 +161,7 @@ impl<I> Optimizer<I> {
                 res.push(BotCommand::smove(lld).unwrap());
             }
         }
+        optimize_lld_pairs(&mut res);
         res.into_iter()
     }
 }
@@ -145,7 +176,7 @@ impl<I> Iterator for Optimizer<I>
             }
             match self.cmds.next() {
                 None => return None,
-                c @ Some(BotCommand::Wait) => continue,
+                Some(BotCommand::Wait) => continue,
                 c @ Some(BotCommand::Halt) |
                 c @ Some(BotCommand::Flip) |
                 c @ Some(BotCommand::Fill{ .. }) |
@@ -167,6 +198,160 @@ impl<I> Iterator for Optimizer<I>
                      self.add_move(&short1);
                      self.add_move(&short2);  
                 },
+            }
+        }
+    }
+}
+
+struct FillOptimizer<I> {
+    cmds: I,
+    buffer: VecDeque<BotCommand>,
+    tmp: VecDeque<BotCommand>,
+}
+impl<I> FillOptimizer<I> {
+    pub fn new(iter: I) -> FillOptimizer<I> {
+        FillOptimizer {
+            cmds: iter,
+            buffer: VecDeque::new(),
+            tmp: VecDeque::new(),
+        }
+    }
+}
+impl<I> Iterator for FillOptimizer<I>
+    where I: Iterator<Item = BotCommand>
+{
+    type Item = BotCommand;
+    fn next(&mut self) -> Option<Self::Item> {        
+        loop {
+            if self.buffer.len()>0 {
+                return self.buffer.pop_front();
+            }
+            match self.cmds.next() {
+                None => return None,
+                Some(BotCommand::Wait) => continue,
+                Some(BotCommand::Fill{ near }) if near == CoordDiff(Coord { x: 0, y: -1, z: 0 })  => {
+                    self.tmp.push_back(BotCommand::Fill{ near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) });
+                },
+                Some(BotCommand::SMove{ long: LinearCoordDiff::Long { axis: Axis::Z, value } }) if value.abs() == 1  => {
+                    self.tmp.push_back(BotCommand::SMove{ long: LinearCoordDiff::Long { axis: Axis::Z, value: value } });
+                },
+                c @ Some(BotCommand::SMove{ .. }) |
+                c @ Some(BotCommand::Fill{ .. }) |
+                c @ Some(BotCommand::Halt) |
+                c @ Some(BotCommand::Flip) |
+                c @ Some(BotCommand::LMove{ .. }) |  
+                c @ Some(BotCommand::FusionP{ .. }) |
+                c @ Some(BotCommand::FusionS{ .. }) |
+                c @ Some(BotCommand::Fission{ .. }) => {
+                    self.buffer.extend(self.tmp.drain(0..));
+                    self.buffer.push_back(c.unwrap());
+                },   
+            }
+            if self.tmp.len() == 5 {
+                if  (self.tmp[0] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) })&&
+                    (self.tmp[1] == BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } })&&
+                    (self.tmp[2] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) })&&
+                    (self.tmp[3] == BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } })&&
+                    (self.tmp[4] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) }) {
+                        self.buffer.push_back(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } });
+                        self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: -1 }) });
+                        self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) });
+                        self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 1 }) });
+                        self.buffer.push_back(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } });
+                        self.tmp.clear();
+                    }
+                else {
+                    if  (self.tmp[0] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) })&&
+                        (self.tmp[1] == BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: -1 } })&&
+                        (self.tmp[2] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) })&&
+                        (self.tmp[3] == BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: -1 } })&&
+                        (self.tmp[4] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) }) {
+                            self.buffer.push_back(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: -1 } });
+                            self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 1 }) });
+                            self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) });
+                            self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: -1 }) });
+                            self.buffer.push_back(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: -1 } });
+                            self.tmp.clear();
+                        }
+                    else {                        
+                        if let Some(c) = self.tmp.pop_front() {
+                            self.buffer.push_back(c)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct FillOptimizer2<I> {
+    cmds: I,
+    buffer: VecDeque<BotCommand>,
+    tmp: VecDeque<BotCommand>,
+}
+impl<I> FillOptimizer2<I> {
+    pub fn new(iter: I) -> FillOptimizer2<I> {
+        FillOptimizer2 {
+            cmds: iter,
+            buffer: VecDeque::new(),
+            tmp: VecDeque::new(),
+        }
+    }
+}
+impl<I> Iterator for FillOptimizer2<I>
+    where I: Iterator<Item = BotCommand>
+{
+    type Item = BotCommand;
+    fn next(&mut self) -> Option<Self::Item> {        
+        loop {
+            if self.buffer.len()>0 {
+                return self.buffer.pop_front();
+            }
+            match self.cmds.next() {
+                None => return None,
+                Some(BotCommand::Wait) => continue,
+                Some(BotCommand::Fill{ near }) if near == CoordDiff(Coord { x: 0, y: -1, z: 0 })  => {
+                    self.tmp.push_back(BotCommand::Fill{ near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) });
+                },
+                Some(BotCommand::SMove{ long: LinearCoordDiff::Long { axis: Axis::Z, value } }) if value.abs() == 1  => {
+                    self.tmp.push_back(BotCommand::SMove{ long: LinearCoordDiff::Long { axis: Axis::Z, value: value } });
+                },
+                c @ Some(BotCommand::SMove{ .. }) |
+                c @ Some(BotCommand::Fill{ .. }) |
+                c @ Some(BotCommand::Halt) |
+                c @ Some(BotCommand::Flip) |
+                c @ Some(BotCommand::LMove{ .. }) |  
+                c @ Some(BotCommand::FusionP{ .. }) |
+                c @ Some(BotCommand::FusionS{ .. }) |
+                c @ Some(BotCommand::Fission{ .. }) => {
+                    self.buffer.extend(self.tmp.drain(0..));
+                    self.buffer.push_back(c.unwrap());
+                },   
+            }
+            if self.tmp.len() == 3 {
+                if  (self.tmp[0] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) })&&
+                    (self.tmp[1] == BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } })&&
+                    (self.tmp[2] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) }) {
+                        self.buffer.push_back(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } });
+                        self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: -1 }) });
+                        self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) });
+                        self.tmp.clear();
+                    }
+                else {
+                    if  (self.tmp[0] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) })&&
+                        (self.tmp[1] == BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: -1 } })&&
+                        (self.tmp[2] == BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) }) {
+                            self.buffer.push_back(BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: -1 } });
+                            self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 1 }) });
+                            self.buffer.push_back(BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) });
+                            self.tmp.clear();
+                        }
+                    else {                        
+                        if let Some(c) = self.tmp.pop_front() {
+                            self.buffer.push_back(c)
+                        }
+                    }
+                }
             }
         }
     }
@@ -208,12 +393,18 @@ fn main() -> Result<(),Error> {
     let cmds = kernel::cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
     let old_len = cmds.len();
     
-    let opt_cmds = Optimizer::new(cmds.into_iter()).collect();
+    let opt_cmds = Optimizer::new(
+        FillOptimizer2::new(
+            Optimizer::new(
+                FillOptimizer::new(
+                    Optimizer::new(cmds.into_iter()))))).collect::<Vec<_>>();
+    let mut new_len = 0;
     buffer = kernel::cmd::into_bytes(&opt_cmds).unwrap();
-    //for c in  opt_cmds {
-    //    print!("{:?}\n",c);
-    //}
-    println!("Old: {}, new: {}",old_len,opt_cmds.len());
+    for c in  opt_cmds {
+        //print!("{:?}\n",c);
+        new_len += 1;
+    }
+    println!("Old: {}, new: {}",old_len,new_len);
 
     {
         let mut f = File::create(&optimized).map_err(Error::Io)?;
