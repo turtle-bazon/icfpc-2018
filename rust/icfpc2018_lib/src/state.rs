@@ -98,6 +98,7 @@ impl State {
         WellformedStatus::Wellformed
     }
 
+    /* Maybe this method should return either Error or Coord[] of volatile coordinates ? */
     pub fn do_cmd_mut(&mut self, cmd: BotCommand, bot: &mut Bot) -> Result<(), Error> {
         let c = bot.pos;
 
@@ -110,7 +111,7 @@ impl State {
                 match (check_coord, check_the_only_bot, check_low) {
                     (true, true, true) => {
                         self.bots.remove(&1);
-                        Ok(())
+                        Ok(()) // [c]
                     },
                     (false, _, _) => Err(Error::HaltNotAtZeroCoord),
                     (_, false, _) => Err(Error::HaltTooManyBots),
@@ -127,12 +128,22 @@ impl State {
                         self.harmonics = Harmonics::Low
                     },
                 };
-                Ok(())
+                Ok(()) //[c]
             },
             BotCommand::SMove{ long } => unimplemented!(),
             BotCommand::LMove{ short1, short2 } => unimplemented!(),
             BotCommand::Fission{ near, split_m } => unimplemented!(),
-            BotCommand::Fill{ near } => unimplemented!(),
+            BotCommand::Fill{ near } => {
+                let cf = c.add(near);
+                if (!self.matrix.is_filled(&cf)) {
+                    self.matrix.set_filled(&cf);
+                    self.energy += 12;
+                }
+                else {
+                    self.energy += 6;
+                }
+                Ok(()) // [c,cf]
+            },
             BotCommand::FusionP{ near } => unimplemented!(),
             BotCommand::FusionS{ near } => unimplemented!(),
 
