@@ -353,6 +353,7 @@ mod test {
         let res = state.do_cmd_mut(1, BotCommand::fill(df).unwrap());
         assert!(res.is_ok());
         assert_eq!(state.energy, 12);
+        assert!(state.matrix.is_filled(&Coord { x:1, y:0, z:0 }));
         let exp : HashSet<Coord> = [
             Coord { x: 0, y:0, z: 0, },
             Coord { x: 1, y:0, z: 0, },
@@ -364,6 +365,7 @@ mod test {
         let res = state.do_cmd_mut(1, BotCommand::fill(df).unwrap());
         assert!(res.is_ok());
         assert_eq!(state.energy, 6);
+        assert!(state.matrix.is_filled(&Coord { x:1, y:0, z:0 }));
         let exp : HashSet<Coord> = [
             Coord { x: 0, y:0, z: 0, },
             Coord { x: 1, y:0, z: 0, },
