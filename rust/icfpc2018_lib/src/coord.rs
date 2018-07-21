@@ -84,7 +84,7 @@ impl Coord {
 
     pub fn get_neighbours(&self) -> impl Iterator<Item = Coord> {
         let slf = self.clone();
-        iproduct!(-1..1, -1..1, -1..1)
+        iproduct!(-1..2, -1..2, -1..2)
             .filter_map(move |(dx,dy,dz)| {
                 let dc = CoordDiff(Coord{ x: dx, y: dy, z: dz });
                 match dc.is_near() {
