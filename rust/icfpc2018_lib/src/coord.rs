@@ -28,6 +28,18 @@ pub enum LinearCoordDiff {
     Short { axis: Axis, value: M, },
     Long { axis: Axis, value: M, },
 }
+impl LinearCoordDiff {
+    pub fn get_axis(&self) -> Axis {
+        match &self {
+            LinearCoordDiff::Long{ axis, .. } | LinearCoordDiff::Short{ axis, .. } => *axis,
+        }
+    }
+    pub fn get_value(&self) -> M {
+        match &self {
+            LinearCoordDiff::Long{ value, .. } | LinearCoordDiff::Short{ value, .. } => *value,
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Region {
