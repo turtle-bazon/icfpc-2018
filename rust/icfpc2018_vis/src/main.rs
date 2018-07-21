@@ -373,6 +373,9 @@ fn run() -> Result<(), Error> {
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::P), state: ButtonState::Release, .. })) =>
                 if let CursorState::Filling = cursor_state {
                     for coord in nanobot.get_neighbours() {
+                        if coord.y >= nanobot.y {
+                            continue;
+                        }
                         if filled_matrix.is_filled(&coord) {
                             continue;
                         }
