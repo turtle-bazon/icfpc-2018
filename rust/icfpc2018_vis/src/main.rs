@@ -365,10 +365,20 @@ fn run() -> Result<(), Error> {
                             }
                         },
                     CursorState::Filling =>
-                        if cursor.diff(&nanobot).is_near() && !filled_matrix.is_filled(&cursor) {
+                        if nanobot.diff(&cursor).is_near() && !filled_matrix.is_filled(&cursor) {
                             filled_matrix.set_filled(&cursor);
-                            script.push(BotCommand::fill(cursor.diff(&nanobot)).unwrap());
+                            script.push(BotCommand::fill(nanobot.diff(&cursor)).unwrap());
                         },
+                },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::P), state: ButtonState::Release, .. })) =>
+                if let CursorState::Filling = cursor_state {
+                    for coord in nanobot.get_neighbours() {
+                        if filled_matrix.is_filled(&coord) {
+                            continue;
+                        }
+                        filled_matrix.set_filled(&coord);
+                        script.push(BotCommand::fill(nanobot.diff(&coord)).unwrap());
+                    }
                 },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::H), state: ButtonState::Release, .. })) =>
                 if nanobot.x == 0 && nanobot.y == 0 && nanobot.z == 0 {
