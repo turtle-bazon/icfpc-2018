@@ -379,6 +379,9 @@ fn run() -> Result<(), Error> {
                         if filled_matrix.is_filled(&coord) {
                             continue;
                         }
+                        if !matrix.is_filled(&coord) {
+                            continue;
+                        }
                         filled_matrix.set_filled(&coord);
                         script.push(BotCommand::fill(nanobot.diff(&coord)).unwrap());
                     }
