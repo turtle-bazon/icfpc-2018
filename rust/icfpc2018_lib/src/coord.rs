@@ -238,15 +238,15 @@ impl Matrix {
                 return true;
             }
             coord.z += 1;
-            if coord.z >= region.max.z {
+            if coord.z > region.max.z {
                 coord.z = region.min.z;
                 coord.y += 1;
             }
-            if coord.y >= region.max.y {
+            if coord.y > region.max.y {
                 coord.y = region.min.y;
                 coord.x += 1;
             }
-            if coord.x >= region.max.x {
+            if coord.x > region.max.x {
                 return false;
             }
         }
