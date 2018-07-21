@@ -128,6 +128,9 @@ impl CoordDiff {
     pub fn is_near(&self) -> bool {
         self.l_inf_norm() == 1 && self.l_1_norm() <= 2
     }
+    pub fn is_far(&self) -> bool {
+        self.l_inf_norm() > 0 && self.l_inf_norm() <= 30
+    }
 }
 
 impl LinearCoordDiff {
