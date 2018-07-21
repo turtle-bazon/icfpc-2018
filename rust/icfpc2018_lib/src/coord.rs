@@ -167,6 +167,20 @@ impl Region {
                 RegionDim::Box,
         }
     }
+
+    pub fn coord_set(&self) -> HashSet<Coord> {
+        let mut set = HashSet::new();
+
+        for x in self.min.x..self.max.x+1 {
+            for y in self.min.y..self.max.y+1 {
+                for z in self.min.z..self.max.z+1 {
+                    set.insert(Coord { x, y, z });
+                }
+            }
+        }
+
+        set
+    }
 }
 
 impl Matrix {
