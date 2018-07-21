@@ -262,8 +262,8 @@ impl State {
 
         /* check there are enough commands */
         let bids: Vec<Bid> = self.bots.keys().cloned().collect();
-        if commands.len() >= bids.len() {
-            return Err(Error::NotEnoughCommands)
+        if commands.len() < bids.len() {
+            return Err(Error::NotEnoughCommands);
         }
 
         let commands_to_execute : Vec<BotCommand> = commands.drain(0..bids.len()).collect();
@@ -546,5 +546,25 @@ mod test {
 
 
         // TODO: Error cases
+    }
+
+    #[test]
+    fn step_mut() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        // println!("Energy: {}", state.energy);
+        let mut trace = vec![
+            BotCommand::flip().unwrap(),
+            BotCommand::smove(LinearCoordDiff::Long { axis: Axis::X, value: 2, }).unwrap(),
+            BotCommand::smove(LinearCoordDiff::Long { axis: Axis::X, value: -2, }).unwrap(),
+            BotCommand::halt().unwrap(),
+            ];
+        state.step_mut(&mut trace);
+        state.step_mut(&mut trace);
+        state.step_mut(&mut trace);
+        state.step_mut(&mut trace);
+        // println!("Energy: {}", state.energy);
+        // assert!(false);
     }
 }
