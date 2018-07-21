@@ -13,17 +13,16 @@ pub enum Error {
     CreateShaderSet(gfx::shade::ProgramError),
 }
 
-pub struct VoxelRenderer<R> where R: gfx::Resources {
+pub struct VoxelRenderer<R, F> where R: gfx::Resources, F: gfx::Factory<R> {
     vertex_data: Vec<Vertex>,
     vertex_buffer: gfx::handle::Buffer<R, Vertex>,
     pso_map: HashMap<gfx::format::Format, PipelineState<R, pipe::Meta>>,
     shaders: gfx::ShaderSet<R>,
+    factory: F,
 }
 
-impl<R> VoxelRenderer<R> where R: gfx::Resources {
-    pub fn new<F>(factory: &mut F, initial_buffer_size: usize) -> Result<VoxelRenderer<R>, Error> where
-        F: gfx::Factory<R>
-    {
+impl<R, F> VoxelRenderer<R, F> where R: gfx::Resources, F: gfx::Factory<R> {
+    pub fn new(mut factory: F, initial_buffer_size: usize) -> Result<VoxelRenderer<R, F>, Error> {
         let set = factory.create_shader_set(VERTEX_SRC, FRAGMENT_SRC)
             .map_err(Error::CreateShaderSet)?;
         let vertex_buffer = factory.create_buffer(
@@ -38,12 +37,11 @@ impl<R> VoxelRenderer<R> where R: gfx::Resources {
             vertex_buffer: vertex_buffer,
             pso_map: HashMap::new(),
             shaders: set,
+            factory,
         })
     }
 
-    fn prepare_pso<F>(&mut self, factory: &mut F, format: gfx::format::Format) -> Result<(), Error> where
-        F: gfx::Factory<R>
-    {
+    fn prepare_pso(&mut self, format: gfx::format::Format) -> Result<(), Error> where {
         Ok(if let Entry::Vacant(e) = self.pso_map.entry(format) {
             let init = pipe::Init {
                 vbuf: (),
@@ -51,7 +49,7 @@ impl<R> VoxelRenderer<R> where R: gfx::Resources {
                 out_color: ("o_Color", format, gfx::state::ColorMask::all(), Some(gfx::preset::blend::ALPHA)),
                 out_depth: gfx::preset::depth::LESS_EQUAL_WRITE,
             };
-            let pso = factory.create_pipeline_state(
+            let pso = self.factory.create_pipeline_state(
                 &self.shaders,
                 gfx::Primitive::TriangleList,
                 gfx::state::Rasterizer::new_fill(),
@@ -106,17 +104,15 @@ impl<R> VoxelRenderer<R> where R: gfx::Resources {
         self.vertex_data.push(Vertex{position: [min[0], min[1], min[2]], color: color});
     }
 
-    pub fn render<C, F, T> (
+    pub fn render<C, T> (
         &mut self,
         encoder: &mut gfx::Encoder<R, C>,
-        factory: &mut F,
         color_target: &RenderTargetView<R, T>,
         depth_target: &DepthStencilView<R, gfx::format::DepthStencil>,
         projection: [[f32; 4]; 4],
     )
         -> Result<(), Error> where
         C: gfx::CommandBuffer<R>,
-        F: gfx::Factory<R>,
         T: gfx::format::RenderFormat,
     {
         use gfx::memory::{Typed, Usage, Bind};
@@ -126,14 +122,14 @@ impl<R> VoxelRenderer<R> where R: gfx::Resources {
             while size < self.vertex_data.len() {
                 size *= 2;
             }
-            self.vertex_buffer = factory.create_buffer(size, gfx::buffer::Role::Vertex, Usage::Dynamic, Bind::empty())
+            self.vertex_buffer = self.factory.create_buffer(size, gfx::buffer::Role::Vertex, Usage::Dynamic, Bind::empty())
                 .map_err(Error::ResizeBuffer)?;
         }
 
         encoder.update_buffer(&self.vertex_buffer, &self.vertex_data[..], 0)
             .map_err(Error::UpdateBuffer)?;
 
-        self.prepare_pso(factory, T::get_format())?;
+        self.prepare_pso(T::get_format())?;
         let pso = &self.pso_map[&T::get_format()];
 
         let data = pipe::Data {

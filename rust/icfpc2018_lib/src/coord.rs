@@ -2,8 +2,8 @@ use std::{cmp, iter};
 use std::collections::HashSet;
 use bit_vec::BitVec;
 
-const LOWER_LIMIT: isize = 0;
-const UPPER_LIMIT: isize = 250;
+pub const LOWER_LIMIT: isize = 0;
+pub const UPPER_LIMIT: isize = 250;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Axis { X, Y, Z, }
@@ -27,6 +27,18 @@ pub struct CoordDiff(pub Coord);
 pub enum LinearCoordDiff {
     Short { axis: Axis, value: M, },
     Long { axis: Axis, value: M, },
+}
+impl LinearCoordDiff {
+    pub fn get_axis(&self) -> Axis {
+        match &self {
+            LinearCoordDiff::Long{ axis, .. } | LinearCoordDiff::Short{ axis, .. } => *axis,
+        }
+    }
+    pub fn get_value(&self) -> M {
+        match &self {
+            LinearCoordDiff::Long{ value, .. } | LinearCoordDiff::Short{ value, .. } => *value,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -143,6 +155,29 @@ impl LinearCoordDiff {
 }
 
 impl Region {
+    pub fn from_corners(l: &Coord, r: &Coord) -> Region {
+        Region {
+            min: Coord { x: cmp::min(l.x, r.x), y: cmp::min(l.y, r.y), z: cmp::min(l.z, r.z) },
+            max: Coord { x: cmp::max(l.x, r.x), y: cmp::max(l.y, r.y), z: cmp::max(l.z, r.z) },
+        }
+    }
+
+    pub fn contains(&self, coord: &Coord) -> bool {
+        coord.x >= self.min.x && coord.x <= self.max.x &&
+            coord.y >= self.min.y && coord.y <= self.max.y &&
+            coord.z >= self.min.z && coord.z <= self.max.z
+    }
+
+    pub fn intersects(&self, other: &Region) -> bool {
+        let not_x_proj =
+            self.max.z < other.min.z || other.max.z < self.min.z || self.max.y < other.min.y || other.max.y < self.min.y;
+        let not_y_proj =
+            self.max.z < other.min.z || other.max.z < self.min.z || self.max.x < other.min.x || other.max.x < self.min.x;
+        let not_z_proj =
+            self.max.y < other.min.y || other.max.y < self.min.y || self.max.x < other.min.x || other.max.x < self.min.x;
+        !(not_x_proj || not_y_proj || not_z_proj)
+    }
+
     pub fn dimension(&self) -> RegionDim {
         match (self.min.x == self.max.x, self.min.y == self.max.y, self.min.z == self.max.z) {
             (true, true, true) =>
@@ -154,6 +189,20 @@ impl Region {
             (false, false, false) =>
                 RegionDim::Box,
         }
+    }
+
+    pub fn coord_set(&self) -> HashSet<Coord> {
+        let mut set = HashSet::new();
+
+        for x in self.min.x..self.max.x+1 {
+            for y in self.min.y..self.max.y+1 {
+                for z in self.min.z..self.max.z+1 {
+                    set.insert(Coord { x, y, z });
+                }
+            }
+        }
+
+        set
     }
 }
 
@@ -190,6 +239,27 @@ impl Matrix {
         let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
         assert!(offset < self.field.len());
         self.field[offset]
+    }
+
+    pub fn contains_filled(&self, region: &Region) -> bool {
+        let mut coord = region.min;
+        loop {
+            if self.is_filled(&coord) {
+                return true;
+            }
+            coord.z += 1;
+            if coord.z > region.max.z {
+                coord.z = region.min.z;
+                coord.y += 1;
+            }
+            if coord.y > region.max.y {
+                coord.y = region.min.y;
+                coord.x += 1;
+            }
+            if coord.x > region.max.x {
+                return false;
+            }
+        }
     }
 
     pub fn filled_near_neighbours<'a>(&'a self, coord: &Coord) -> impl Iterator<Item = Coord> + 'a {
@@ -262,7 +332,7 @@ impl fmt::Debug for Matrix {
 
 #[cfg(test)]
 mod tests {
-    use super::{Coord, Resolution, Matrix, LinearCoordDiff, Axis};
+    use super::{Coord, Resolution, Matrix, LinearCoordDiff, Axis, Region};
 
     #[test]
     fn is_grounded_single_empty() {
@@ -406,5 +476,43 @@ mod tests {
         assert_eq!(diff.0.x, 0);
         assert_eq!(diff.0.y, 0);
         assert_eq!(diff.0.z, 12);
+    }
+
+    #[test]
+    fn contains_filled() {
+        let matrix = Matrix::from_iter(
+            Resolution(3),
+            vec![
+                Coord { x: 2, y: 2, z: 2, },
+           ]);
+
+        assert!(matrix.contains_filled(&Region::from_corners(&Coord { x: 0, y: 0, z: 0, },
+                                                             &Coord { x: 2, y: 2, z: 2, })));
+        assert!(!matrix.contains_filled(&Region::from_corners(&Coord { x: 0, y: 0, z: 0, },
+                                                              &Coord { x: 0, y: 0, z: 0, })));
+        assert!(matrix.contains_filled(&Region::from_corners(&Coord { x: 2, y: 2, z: 2, },
+                                                             &Coord { x: 2, y: 2, z: 2, })));
+        assert!(matrix.contains_filled(&Region::from_corners(&Coord { x: 1, y: 1, z: 1, },
+                                                             &Coord { x: 2, y: 2, z: 2, })));
+    }
+
+    #[test]
+    fn regions_intersect() {
+        let region = Region {
+            min: Coord { x: 0, y: 0, z: 0, },
+            max: Coord { x: 1, y: 1, z: 1, },
+        };
+        assert!(region.intersects(&Region {
+            min: Coord { x: 1, y: 1, z: 1, },
+            max: Coord { x: 2, y: 2, z: 2, },
+        }));
+        assert!(region.intersects(&Region {
+            min: Coord { x: 1, y: 1, z: 0, },
+            max: Coord { x: 2, y: 1, z: 2, },
+        }));
+        assert!(!region.intersects(&Region {
+            min: Coord { x: 0, y: 2, z: 0, },
+            max: Coord { x: 2, y: 2, z: 2, },
+        }));
     }
 }
