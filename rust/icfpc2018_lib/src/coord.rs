@@ -238,15 +238,16 @@ impl Matrix {
                 return true;
             }
             coord.z += 1;
-            if coord.z >= region.max.z {
+            if coord.z > region.max.z {
                 coord.z = region.min.z;
                 coord.y += 1;
             }
-            if coord.y >= region.max.y {
+            if coord.y > region.max.y {
+                coord.z = region.min.z;
                 coord.y = region.min.y;
                 coord.x += 1;
             }
-            if coord.x >= region.max.x {
+            if coord.x > region.max.x {
                 return false;
             }
         }
@@ -322,7 +323,7 @@ impl fmt::Debug for Matrix {
 
 #[cfg(test)]
 mod tests {
-    use super::{Coord, Resolution, Matrix, LinearCoordDiff, Axis};
+    use super::{Coord, Resolution, Matrix, LinearCoordDiff, Axis, Region};
 
     #[test]
     fn is_grounded_single_empty() {
@@ -467,4 +468,23 @@ mod tests {
         assert_eq!(diff.0.y, 0);
         assert_eq!(diff.0.z, 12);
     }
+
+    #[test]
+    fn contains_filled() {
+        let matrix = Matrix::from_iter(
+            Resolution(3),
+            vec![
+                Coord { x: 2, y: 2, z: 2, },
+           ]);
+
+        assert!(matrix.contains_filled(&Region::from_corners(&Coord { x: 0, y: 0, z: 0, },
+                                                             &Coord { x: 2, y: 2, z: 2, })));
+        assert!(!matrix.contains_filled(&Region::from_corners(&Coord { x: 0, y: 0, z: 0, },
+                                                              &Coord { x: 0, y: 0, z: 0, })));
+        assert!(matrix.contains_filled(&Region::from_corners(&Coord { x: 2, y: 2, z: 2, },
+                                                             &Coord { x: 2, y: 2, z: 2, })));
+        assert!(matrix.contains_filled(&Region::from_corners(&Coord { x: 1, y: 1, z: 1, },
+                                                             &Coord { x: 2, y: 2, z: 2, })));
+    }
+
 }
