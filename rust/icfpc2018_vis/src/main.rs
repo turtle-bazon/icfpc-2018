@@ -20,6 +20,7 @@ use piston_window::{
     PistonWindow,
     WindowSettings,
     RenderEvent,
+    ResizeEvent,
     Event,
     Input,
     Button,
@@ -141,6 +142,17 @@ fn run() -> Result<(), Error> {
         } else {
             return Ok(());
         };
+
+        orbit_zoom_camera.event(&event);
+        event.resize(|width, height| {
+            // Update projection matrix
+            projection = CameraPerspective {
+                fov: 90.0f32,
+                near_clip: 0.1,
+                far_clip: 1000.0,
+                aspect_ratio: (width as f32) / (height as f32)
+            }.projection();
+        });
 
         let maybe_result = window.draw_3d(&event, |win| {
             if let Some(args) = event.render_args() {
