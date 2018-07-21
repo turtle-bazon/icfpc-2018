@@ -118,6 +118,21 @@ impl CoordDiff {
     }
 }
 
+impl LinearCoordDiff {
+    pub fn to_coord_diff(&self) -> CoordDiff {
+        let (&axis,&value) = match self {
+            LinearCoordDiff::Short{axis, value} => (axis, value),
+            LinearCoordDiff::Long{axis, value} => (axis, value),
+        };
+
+        match axis {
+            Axis::X => CoordDiff(Coord{ x: value, y: 0, z: 0 }),
+            Axis::Y => CoordDiff(Coord{ x: 0, y: value, z: 0 }),
+            Axis::Z => CoordDiff(Coord{ x: 0, y: 0, z: value }),
+        }
+    }
+}
+
 impl Region {
     pub fn dimension(&self) -> RegionDim {
         match (self.min.x == self.max.x, self.min.y == self.max.y, self.min.z == self.max.z) {
