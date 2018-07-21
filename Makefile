@@ -4,8 +4,8 @@ SUBMISSION_WEB_URL = https://icfpc.gnolltech.org/2018/
 BUILD_NAME ?= dev
 TEAM_ID ?= 83a5a58b38d74178b43b65caeef23500
 
-PROBLEMS := $(wildcard problems/LA*.mdl)
-TRACES := $(wildcard traces/LA*.nbt)
+PROBLEMS := $(wildcard problems/FA*_tgt.mdl) $(wildcard problems/FD*_src.mdl) $(wildcard problems/FR*_tgt.mdl)
+TRACES := $(wildcard traces/F*.nbt)
 
 all: build
 
