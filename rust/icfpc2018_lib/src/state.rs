@@ -186,6 +186,10 @@ impl State {
             },
             BotCommand::Fill{ near } => {
                 let cf = c.add(near);
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+
                 if !self.matrix.is_filled(&cf) {
                     self.matrix.set_filled(&cf);
                     self.energy += 12;
@@ -193,6 +197,7 @@ impl State {
                 else {
                     self.energy += 6;
                 }
+                volatile.insert(cf);
             },
             BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
             BotCommand::FusionP{ near: _ } => unimplemented!(),
@@ -232,6 +237,7 @@ mod test {
     use super::super::{
         coord::{
             Coord,
+            CoordDiff,
             Matrix,
             Resolution,
         }
@@ -336,5 +342,39 @@ mod test {
         assert!(res.is_err());
         assert_eq!(state.energy, 0);
         assert_eq!(res, Err(Error::InvalidBid{bid:2}));
+    }
+
+    #[test]
+    fn do_cmd_fill() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        let res = state.do_cmd_mut(1, BotCommand::fill(df).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.energy, 12);
+        let exp : HashSet<Coord> = [
+            Coord { x: 0, y:0, z: 0, },
+            Coord { x: 1, y:0, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        state.energy = 0; // reset energy
+        let res = state.do_cmd_mut(1, BotCommand::fill(df).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.energy, 6);
+        let exp : HashSet<Coord> = [
+            Coord { x: 0, y:0, z: 0, },
+            Coord { x: 1, y:0, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let matrix = Matrix::new(Resolution(1));
+        let mut state = State::new(matrix, vec![]);
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        let res = state.do_cmd_mut(1, BotCommand::fill(df).unwrap());
+        assert!(res.is_err());
+        assert_eq!(res, Err(Error::MoveOutOfBounds{c: Coord {x:1, y:0, z:0}}));
     }
 }
