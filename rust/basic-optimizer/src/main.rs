@@ -95,6 +95,36 @@ fn optimize_moves(movings: &mut Vec<Move>) {
     }
 }
 
+fn optimize_lld_pairs(cmds: &mut Vec<BotCommand>) {
+    loop {
+        let mut tmp = None;
+        for i in (0 .. cmds.len()-1) {
+            match (cmds[i],cmds[i+1]) {
+                (BotCommand::SMove{ long: long1 },BotCommand::SMove{ long: long2 }) if (long1.get_value().abs()<=5)&&(long2.get_value().abs()<=5) => {
+                    let short1 = LinearCoordDiff::Short{
+                        axis: long1.get_axis(),
+                        value: long1.get_value(),
+                    };
+                    let short2 = LinearCoordDiff::Short{
+                        axis: long2.get_axis(),
+                        value: long2.get_value(),
+                    };
+                    tmp = Some((i,BotCommand::lmove(short1,short2).unwrap()));
+                    
+                    break;    
+                },
+                (_,_) => continue,
+            }
+        }
+        match tmp {
+            None => break,
+            Some((idx,cmd)) => {
+                cmds.remove(idx);
+                cmds[idx] = cmd;
+            }
+        }
+    }
+}
 
 struct Optimizer<I> {
     cmds: I,
@@ -131,6 +161,7 @@ impl<I> Optimizer<I> {
                 res.push(BotCommand::smove(lld).unwrap());
             }
         }
+        optimize_lld_pairs(&mut res);
         res.into_iter()
     }
 }
@@ -208,12 +239,14 @@ fn main() -> Result<(),Error> {
     let cmds = kernel::cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
     let old_len = cmds.len();
     
-    let opt_cmds = Optimizer::new(cmds.into_iter()).collect();
+    let opt_cmds = Optimizer::new(cmds.into_iter()).collect::<Vec<_>>();
+    let mut new_len = 0;
     buffer = kernel::cmd::into_bytes(&opt_cmds).unwrap();
-    //for c in  opt_cmds {
-    //    print!("{:?}\n",c);
-    //}
-    println!("Old: {}, new: {}",old_len,opt_cmds.len());
+    for c in  opt_cmds {
+        //print!("{:?}\n",c);
+        new_len += 1;
+    }
+    println!("Old: {}, new: {}",old_len,new_len);
 
     {
         let mut f = File::create(&optimized).map_err(Error::Io)?;
