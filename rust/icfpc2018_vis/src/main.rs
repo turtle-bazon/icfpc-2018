@@ -39,7 +39,12 @@ use camera_controllers::{
     model_view_projection
 };
 
-use icfpc2018_lib::model;
+use icfpc2018_lib::{
+    model,
+    coord::{
+        Coord,
+    },
+};
 
 mod voxel;
 
@@ -65,8 +70,6 @@ enum Error {
 #[derive(Debug)]
 enum PistonError {
     BuildWindow(String),
-    // LoadFont { file: String, error: io::Error, },
-    // DrawText(gfx_core::factory::CombinedError),
     DebugRendererInit(gfx_debug_draw::DebugRendererError),
     DebugRendererRender(gfx_debug_draw::DebugRendererError),
     VoxelRenderer(voxel::Error),
@@ -134,13 +137,14 @@ fn run() -> Result<(), Error> {
         OrbitZoomCameraSettings::default()
     );
 
-    // let mut font_path = PathBuf::from(assets_dir);
-    // font_path.push("FiraSans-Regular.ttf");
-    // let mut glyphs = Glyphs::new(&font_path, window.factory.clone(), TextureSettings::new())
-    //     .map_err(|e| Error::Piston(PistonError::LoadFont {
-    //         file: font_path.to_string_lossy().to_string(),
-    //         error: e,
-    //     }))?;
+    enum CursorState {
+        Moving,
+        Filling,
+    }
+
+    let mut nanobot = Coord { x: 0, y: 0, z: 0, };
+    let mut cursor = Coord { x: 1, y: 0, z: 1, };
+    let mut cursor_state = CursorState::Moving;
 
     loop {
         let event = if let Some(ev) = window.next() {
@@ -183,6 +187,15 @@ fn run() -> Result<(), Error> {
                 debug_renderer.draw_text_at_position("Z", [0.0, 0.0, 6.0], [0.0, 0.0, 1.0, 1.0]);
 
                 {
+                    let dim = matrix.dim() as f32;
+
+                    // Draw floor
+                    voxel_renderer.draw_voxel([0.0, 0.0, 0.0], [dim, -1.0, dim], [0.33, 0.33, 0.33, 1.0]);
+                    for i in 0 .. matrix.dim() {
+                        debug_renderer.draw_line([i as f32, 0.0, 0.0], [i as f32, 0.0, dim], [0.0, 0.0, 0.0, 1.0]);
+                        debug_renderer.draw_line([0.0, 0.0, i as f32], [dim, 0.0, i as f32], [0.0, 0.0, 0.0, 1.0]);
+                    }
+
                     let mut draw_cube_mesh = |min: [f32; 3], max: [f32; 3], color| {
                         // front
                         debug_renderer.draw_line([min[0], min[1], min[2]], [max[0], min[1], min[2]], color);
@@ -202,23 +215,50 @@ fn run() -> Result<(), Error> {
                     };
 
                     // Draw bounding volume
-                    let dim = matrix.dim() as f32;
                     draw_cube_mesh([0.0, 0.0, 0.0], [dim, dim, dim], [0.0, 0.0, 0.0, 1.0]);
-
-                    // Draw floor
-                    voxel_renderer.draw_voxel([0.0, 0.0, 0.0], [dim, -1.0, dim], [0.33, 0.33, 0.33, 1.0]);
 
                     // Draw matrix
                     for voxel in matrix.filled_voxels() {
                         // draw voxel
                         let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
                         let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
-                        voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 0.33]);
+                        voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 0.15]);
                         // draw mesh
                         let position =
                             [voxel.x as f32, voxel.y as f32, voxel.z as f32];
                         draw_cube_mesh(position, vec3_add(position, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
                     }
+
+                    // Draw cursor
+                    let cursor_color = match cursor_state {
+                        CursorState::Moving =>
+                            [0.0, 0.0, 1.0, 1.0],
+                        CursorState::Filling =>
+                            if cursor.diff(&nanobot).is_near() {
+                                [0.0, 1.0, 0.0, 1.0]
+                            } else {
+                                [1.0, 0.0, 0.0, 1.0]
+                            },
+                    };
+                    let min_point = [cursor.x as f32, cursor.y as f32, cursor.z as f32];
+                    let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                    voxel_renderer.draw_voxel(min_point, max_point, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);
+                    draw_cube_mesh(min_point, vec3_add(min_point, [1.0, 1.0, 1.0]), cursor_color);
+                    let x_proj_min = [0.0, min_point[1], min_point[2]];
+                    let x_proj_max = vec3_add(x_proj_min, [0.0, 1.0, 1.0]);
+                    voxel_renderer.draw_voxel(x_proj_min, x_proj_max, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);
+                    let y_proj_min = [min_point[0], 0.0, min_point[2]];
+                    let y_proj_max = vec3_add(y_proj_min, [1.0, 0.0, 1.0]);
+                    voxel_renderer.draw_voxel(y_proj_min, y_proj_max, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);
+                    let z_proj_min = [min_point[0], min_point[1], 0.0];
+                    let z_proj_max = vec3_add(z_proj_min, [1.0, 1.0, 0.0]);
+                    voxel_renderer.draw_voxel(z_proj_min, z_proj_max, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);
+
+                    // Draw nanobot
+                    let min_point = [nanobot.x as f32, nanobot.y as f32, nanobot.z as f32];
+                    let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                    voxel_renderer.draw_voxel(min_point, max_point, [1.0, 1.0, 0.0, 1.0]);
+                    // draw_cube_mesh(min_point, vec3_add(min_point, [1.0, 1.0, 1.0]), [1.0, 1.0, 0.0, 1.0]);
                 }
 
                 voxel_renderer.render(&mut win.encoder, &mut win.factory, &win.output_color, &win.output_stencil, camera_projection)
@@ -235,6 +275,25 @@ fn run() -> Result<(), Error> {
         match event {
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::Q), state: ButtonState::Release, .. })) =>
                 return Ok(()),
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::A), state: ButtonState::Release, .. })) =>
+                if cursor.x > 0 { cursor.x -= 1; },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::S), state: ButtonState::Release, .. })) =>
+                if cursor.z > 0 { cursor.z -= 1; },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::D), state: ButtonState::Release, .. })) =>
+                if cursor.x + 1 < matrix.dim() as isize { cursor.x += 1; },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::W), state: ButtonState::Release, .. })) =>
+                if cursor.z + 1 < matrix.dim() as isize { cursor.z += 1; },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::F), state: ButtonState::Release, .. })) =>
+                if cursor.y > 0 { cursor.y -= 1; },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::R), state: ButtonState::Release, .. })) =>
+                if cursor.y + 1 < matrix.dim() as isize { cursor.y += 1; },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::Tab), state: ButtonState::Release, .. })) =>
+                match cursor_state {
+                    CursorState::Moving =>
+                        cursor_state = CursorState::Filling,
+                    CursorState::Filling =>
+                        cursor_state = CursorState::Moving,
+                },
             _ =>
                 (),
         }
