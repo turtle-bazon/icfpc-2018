@@ -155,6 +155,7 @@ fn run() -> Result<(), Error> {
     let mut cursor = Coord { x: 1, y: 0, z: 1, };
     let mut cursor_state = CursorState::Moving;
     let mut last_route: Option<Vec<Coord>> = None;
+    let mut show_model = true;
 
     loop {
         let event = if let Some(ev) = window.next() {
@@ -240,18 +241,20 @@ fn run() -> Result<(), Error> {
                     draw_cube_mesh([0.0, 0.0, 0.0], [dim, dim, dim], [0.0, 0.0, 0.0, 1.0]);
 
                     // Draw model matrix
-                    for voxel in matrix.filled_voxels() {
-                        if filled_matrix.is_filled(&voxel) {
-                            continue;
+                    if show_model {
+                        for voxel in matrix.filled_voxels() {
+                            if filled_matrix.is_filled(&voxel) {
+                                continue;
+                            }
+                            // draw voxel
+                            let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                            let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                            voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 0.15]);
+                            // draw mesh
+                            let position =
+                                [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                            draw_cube_mesh(position, vec3_add(position, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
                         }
-                        // draw voxel
-                        let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
-                        let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
-                        voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 0.15]);
-                        // draw mesh
-                        let position =
-                            [voxel.x as f32, voxel.y as f32, voxel.z as f32];
-                        draw_cube_mesh(position, vec3_add(position, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
                     }
 
                     // Draw filled matrix
@@ -329,6 +332,8 @@ fn run() -> Result<(), Error> {
         match event {
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::Q), state: ButtonState::Release, .. })) =>
                 return Ok(()),
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::I), state: ButtonState::Release, .. })) =>
+                show_model = !show_model,
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::A), state: ButtonState::Release, .. })) =>
                 if cursor.x > 0 { cursor.x -= 1; },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::S), state: ButtonState::Release, .. })) =>
