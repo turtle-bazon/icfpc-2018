@@ -49,8 +49,9 @@ pub enum WellformedStatus {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Error {
     StateNotWellformed{status: WellformedStatus},
-    InvalidBid{bid: Bid},
+    NotEnoughCommands,
     CommandsInterfere,
+    InvalidBid{bid: Bid},
     HaltNotAtZeroCoord,
     HaltTooManyBots,
     HaltNotInLow,
@@ -104,7 +105,7 @@ impl State {
         self.bots.get(bid).map(|bot| bot.pos)
     }
 
-    pub fn do_cmd_mut(&mut self, bid: &Bid, cmd: &BotCommand) -> Result<HashSet<Coord>, Error> {
+    pub fn check_precondition(&self, bid: &Bid, cmd: &BotCommand) -> Result<HashSet<Coord>, Error> {
         if let None = self.bots.get(bid) {
             return Err(Error::InvalidBid{bid:*bid})
         }
@@ -120,25 +121,14 @@ impl State {
                 let check_low = self.harmonics == Harmonics::Low;
 
                 match (check_coord, check_the_only_bot, check_low) {
-                    (true, true, true) => {
-                        self.bots.remove(&bid);
-                    },
+                    (true, true, true) => (),
                     (false, _, _) => return Err(Error::HaltNotAtZeroCoord),
                     (_, false, _) => return Err(Error::HaltTooManyBots),
                     (_, _, false) => return Err(Error::HaltNotInLow),
                 }
             },
             BotCommand::Wait => (),
-            BotCommand::Flip => {
-                match self.harmonics {
-                    Harmonics::Low => {
-                        self.harmonics = Harmonics::High
-                    },
-                    Harmonics::High => {
-                        self.harmonics = Harmonics::Low
-                    },
-                };
-            },
+            BotCommand::Flip => (),
             BotCommand::SMove{ long } => {
                 let d = long.to_coord_diff();
                 let cf = c.add(d);
@@ -151,9 +141,6 @@ impl State {
                 if self.matrix.contains_filled(&volatile_reg) {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
                 }
-
-                self.bots.get_mut(&bid).unwrap().pos = cf;
-                self.energy += 2 * d.l_1_norm();
 
                 for c in volatile_reg.coord_set().iter() {
                     volatile.insert(*c);
@@ -181,9 +168,6 @@ impl State {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg2})
                 }
 
-                self.bots.get_mut(&bid).unwrap().pos = cff;
-                self.energy += 2 * (d1.l_1_norm() + 2 + d2.l_1_norm());
-
                 for c in volatile_reg.coord_set().union(&volatile_reg2.coord_set()) {
                     volatile.insert(*c);
                 }
@@ -195,13 +179,6 @@ impl State {
                     return Err(Error::MoveOutOfBounds{c: cf})
                 }
 
-                if !self.matrix.is_filled(&cf) {
-                    self.matrix.set_filled(&cf);
-                    self.energy += 12;
-                }
-                else {
-                    self.energy += 6;
-                }
                 volatile.insert(cf);
             },
             BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
@@ -212,9 +189,102 @@ impl State {
         Ok(volatile)
     }
 
-    pub fn step_mut(&mut self, commands: &mut Vec<BotCommand>) {
-        if let WellformedStatus::Wellformed = self.wellformed() {
+    pub fn perform_mut(&mut self, bid: &Bid, cmd: &BotCommand) {
+        let c = self.bots.get(&bid).unwrap().pos;
+
+        match cmd {
+            BotCommand::Halt => {
+                self.bots.remove(&bid);
+            },
+            BotCommand::Wait => (),
+            BotCommand::Flip => {
+                match self.harmonics {
+                    Harmonics::Low => {
+                        self.harmonics = Harmonics::High
+                    },
+                    Harmonics::High => {
+                        self.harmonics = Harmonics::Low
+                    },
+                };
+            },
+            BotCommand::SMove{ long } => {
+                let d = long.to_coord_diff();
+                let cf = c.add(d);
+
+                self.bots.get_mut(&bid).unwrap().pos = cf;
+                self.energy += 2 * d.l_1_norm();
+            },
+            BotCommand::LMove{ short1, short2 } => {
+                let d1 = short1.to_coord_diff();
+                let d2 = short2.to_coord_diff();
+
+                let cf = c.add(d1);
+                let cff = cf.add(d2);
+
+                self.bots.get_mut(&bid).unwrap().pos = cff;
+                self.energy += 2 * (d1.l_1_norm() + 2 + d2.l_1_norm());
+            },
+            BotCommand::Fill{ near } => {
+                let n = *near;
+                let cf = c.add(n);
+
+                if !self.matrix.is_filled(&cf) {
+                    self.matrix.set_filled(&cf);
+                    self.energy += 12;
+                }
+                else {
+                    self.energy += 6;
+                }
+            },
+            BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
+            BotCommand::FusionP{ near: _ } => unimplemented!(),
+            BotCommand::FusionS{ near: _ } => unimplemented!(),
+
         }
+    }
+
+    pub fn do_cmd_mut(&mut self, bid: &Bid, cmd: &BotCommand) -> Result<HashSet<Coord>, Error> {
+        let res = self.check_precondition(bid, cmd);
+
+        if res.is_ok() {
+            self.perform_mut(bid, cmd)
+        }
+
+        res
+    }
+
+    pub fn step_mut(&mut self, commands: &mut Vec<BotCommand>) -> Result<(), Error> {
+        /* check the state is well-formed */
+        let wf = self.wellformed();
+        if WellformedStatus::Wellformed != wf {
+            return Err(Error::StateNotWellformed{status: wf})
+        }
+
+        /* check there are enough commands */
+        let bids: Vec<Bid> = self.bots.keys().cloned().collect();
+        if commands.len() < bids.len() {
+            return Err(Error::NotEnoughCommands);
+        }
+
+        let commands_to_execute : Vec<BotCommand> = commands.drain(0..bids.len()).collect();
+
+        /* check command preconditions & end commands interference */
+        let mut volatile: HashSet<Coord> = HashSet::new();
+        for (bid, cmd) in bids.iter().zip(commands_to_execute.iter()) {
+            let res = self.check_precondition(bid, &cmd);
+            match res {
+                Ok(cmd_volatile) => {
+                    if volatile.intersection(&cmd_volatile).next() != None {
+                        return Err(Error::CommandsInterfere)
+                    }
+                    for c in cmd_volatile {
+                        volatile.insert(c);
+                    }
+                },
+                Err(e) => return Err(e),
+            }
+        }
+
         // energy step for the step itself
         match self.harmonics {
             Harmonics::Low =>
@@ -226,19 +296,10 @@ impl State {
         // energy for each nanobot
         self.energy += 20 * self.bots.len();
 
-        // here run commands
-        assert!(commands.len() >= self.bots.len());
-
-        let bids: Vec<Bid> = self.bots.keys().cloned().collect();
-        for (bid, cmd) in bids.iter().zip(commands) {
-            let res = self.do_cmd_mut(bid, cmd);
-
+        for (bid, cmd) in bids.iter().zip(commands_to_execute.iter()) {
+            self.perform_mut(bid, &cmd);
         }
-
-        ()
-        // take command sequence for this step (and drop them from the trace)
-        // let _this_step_cmds: Vec<BotCommand> = self.trace.drain(0..bot_count).collect();
-        // ...
+        Ok(())
     }
 }
 
@@ -485,5 +546,25 @@ mod test {
 
 
         // TODO: Error cases
+    }
+
+    #[test]
+    fn step_mut() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        // println!("Energy: {}", state.energy);
+        let mut trace = vec![
+            BotCommand::flip().unwrap(),
+            BotCommand::smove(LinearCoordDiff::Long { axis: Axis::X, value: 2, }).unwrap(),
+            BotCommand::smove(LinearCoordDiff::Long { axis: Axis::X, value: -2, }).unwrap(),
+            BotCommand::halt().unwrap(),
+            ];
+        state.step_mut(&mut trace).unwrap();
+        state.step_mut(&mut trace).unwrap();
+        state.step_mut(&mut trace).unwrap();
+        state.step_mut(&mut trace).unwrap();
+        // println!("Energy: {}", state.energy);
+        // assert!(false);
     }
 }
