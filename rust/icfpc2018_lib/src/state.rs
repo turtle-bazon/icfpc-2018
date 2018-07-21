@@ -49,7 +49,7 @@ pub enum WellformedStatus {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Error {
     StateNotWellformed{status: WellformedStatus},
-    InvalidBotid{bid: Bid},
+    InvalidBid{bid: Bid},
     CommandsInterfere,
     HaltNotAtZeroCoord,
     HaltTooManyBots,
@@ -102,7 +102,7 @@ impl State {
 
     pub fn do_cmd_mut(&mut self, bid: Bid, cmd: BotCommand) -> Result<HashSet<Coord>, Error> {
         if let None = self.bots.get(&bid) {
-            return Err(Error::InvalidBotid{bid})
+            return Err(Error::InvalidBid{bid})
         }
 
         let c = self.bots.get(&bid).unwrap().pos;
@@ -110,7 +110,7 @@ impl State {
 
         match cmd {
             BotCommand::Halt => {
-                let check_coord = c.x == 0 || c.y == 0 || c.z == 0;
+                let check_coord = c.x == 0 && c.y == 0 && c.z == 0;
                 let bot_ids: Vec<Bid> = self.bots.keys().cloned().collect();
                 let check_the_only_bot = bot_ids == [bid];
                 let check_low = self.harmonics == Harmonics::Low;
@@ -255,12 +255,42 @@ mod test {
         assert_eq!(bot.seeds, vec![2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]);
     }
 
-    // #[test]
-    // fn do_cmd_halt() {
-    //     let matrix = Matrix::new(Resolution(4));
-    //     let mut state = State::new(matrix, vec![]);
+    #[test]
+    fn do_cmd_halt() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
 
-    //     let res = state.do_cmd_mut(1, BotCommand::halt().unwrap());
+        let res = state.do_cmd_mut(1, BotCommand::halt().unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.bots.len(), 0);
+        assert_eq!(state.energy, 0);
+        let exp : HashSet<Coord> = [Coord { x: 0, y:0, z: 0, }].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
 
-    // }
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+        let c = Coord { x: 1, y:0, z: 0, };
+        state.bots.get_mut(&1).unwrap().pos = c;
+        let res = state.do_cmd_mut(1, BotCommand::halt().unwrap());
+        assert!(res.is_err());
+        assert_eq!(res, Err(Error::HaltNotAtZeroCoord));
+        assert_eq!(state.energy, 0);
+
+        /* TODO: Halt too many bots */
+
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+        state.harmonics = Harmonics::High;
+        let res = state.do_cmd_mut(1, BotCommand::halt().unwrap());
+        assert!(res.is_err());
+        assert_eq!(res, Err(Error::HaltNotInLow));
+        assert_eq!(state.energy, 0);
+
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+        let res = state.do_cmd_mut(2, BotCommand::halt().unwrap());
+        assert!(res.is_err());
+        assert_eq!(state.energy, 0);
+        assert_eq!(res, Err(Error::InvalidBid{bid:2}));
+    }
 }
