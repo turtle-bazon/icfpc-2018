@@ -51,6 +51,9 @@ pub enum WellformedStatus {
 pub enum Error {
     StateNotWellformed{status: WellformedStatus},
     CommandsInterfere,
+    HaltNotAtZeroCoord,
+    HaltTooManyBots,
+    HaltNotInLow,
 }
 
 
@@ -95,13 +98,37 @@ impl State {
         WellformedStatus::Wellformed
     }
 
-    pub fn do_cmd_mut(&mut self, cmd: BotCommand, bot: &mut Bot) {
+    pub fn do_cmd_mut(&mut self, cmd: BotCommand, bot: &mut Bot) -> Result<(), Error> {
+        let c = bot.pos;
+
         match cmd {
             BotCommand::Halt => {
-                unimplemented!()
+                let check_coord = c.x == 0 || c.y == 0 || c.z == 0;
+                let bot_ids: Vec<Bid> = self.bots.keys().cloned().collect();
+                let check_the_only_bot = bot_ids == [1];
+                let check_low = self.harmonics == Harmonics::Low;
+                match (check_coord, check_the_only_bot, check_low) {
+                    (true, true, true) => {
+                        self.bots.remove(&1);
+                        Ok(())
+                    },
+                    (false, _, _) => Err(Error::HaltNotAtZeroCoord),
+                    (_, false, _) => Err(Error::HaltTooManyBots),
+                    (_, _, false) => Err(Error::HaltNotInLow),
+                }
             },
-            BotCommand::Wait => (),
-            BotCommand::Flip => unimplemented!(),
+            BotCommand::Wait => Ok(()),
+            BotCommand::Flip => {
+                match self.harmonics {
+                    Harmonics::Low => {
+                        self.harmonics = Harmonics::High
+                    },
+                    Harmonics::High => {
+                        self.harmonics = Harmonics::Low
+                    },
+                };
+                Ok(())
+            },
             BotCommand::SMove{ long } => unimplemented!(),
             BotCommand::LMove{ short1, short2 } => unimplemented!(),
             BotCommand::Fission{ near, split_m } => unimplemented!(),
@@ -121,7 +148,7 @@ impl State {
         let this_step_cmds: Vec<BotCommand> = self.trace.drain(0..bot_count).collect();
 
         // energy step for the step itself
-        match(self.harmonics) {
+        match self.harmonics {
             Harmonics::Low =>
                 self.energy += 3 * self.matrix.dim() * self.matrix.dim() * self.matrix.dim(),
             Harmonics::High =>
