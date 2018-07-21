@@ -11,6 +11,8 @@ extern crate icfpc2018_lib;
 #[macro_use] extern crate clap;
 
 use std::{
+    fs,
+    io::{self, Write},
     process,
 };
 
@@ -43,7 +45,12 @@ use icfpc2018_lib::{
     model,
     coord::{
         Coord,
+        Matrix,
+        Region,
+        Resolution,
     },
+    cmd::{self, BotCommand},
+    router,
 };
 
 mod voxel;
@@ -142,9 +149,12 @@ fn run() -> Result<(), Error> {
         Filling,
     }
 
+    let mut script = Vec::new();
+    let mut filled_matrix = Matrix::new(Resolution(matrix.dim() as isize));
     let mut nanobot = Coord { x: 0, y: 0, z: 0, };
     let mut cursor = Coord { x: 1, y: 0, z: 1, };
     let mut cursor_state = CursorState::Moving;
+    let mut last_route: Option<Vec<Coord>> = None;
 
     loop {
         let event = if let Some(ev) = window.next() {
@@ -196,6 +206,18 @@ fn run() -> Result<(), Error> {
                         debug_renderer.draw_line([0.0, 0.0, i as f32], [dim, 0.0, i as f32], [0.0, 0.0, 0.0, 1.0]);
                     }
 
+                    // Draw last route
+                    if let Some(route) = last_route.as_ref() {
+                        for i in 1 .. route.len() {
+                            let reg = Region::from_corners(&route[i - 1], &route[i]);
+                            voxel_renderer.draw_voxel(
+                                [reg.min.x as f32 + 0.4, reg.min.y as f32 + 0.4, reg.min.z as f32 + 0.4],
+                                [reg.max.x as f32 + 0.6, reg.max.y as f32 + 0.6, reg.max.z as f32 + 0.6],
+                                [0.0, 0.5, 0.0, 1.0],
+                            );
+                        }
+                    }
+
                     let mut draw_cube_mesh = |min: [f32; 3], max: [f32; 3], color| {
                         // front
                         debug_renderer.draw_line([min[0], min[1], min[2]], [max[0], min[1], min[2]], color);
@@ -217,8 +239,11 @@ fn run() -> Result<(), Error> {
                     // Draw bounding volume
                     draw_cube_mesh([0.0, 0.0, 0.0], [dim, dim, dim], [0.0, 0.0, 0.0, 1.0]);
 
-                    // Draw matrix
+                    // Draw model matrix
                     for voxel in matrix.filled_voxels() {
+                        if filled_matrix.is_filled(&voxel) {
+                            continue;
+                        }
                         // draw voxel
                         let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
                         let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
@@ -229,12 +254,28 @@ fn run() -> Result<(), Error> {
                         draw_cube_mesh(position, vec3_add(position, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
                     }
 
+                    // Draw filled matrix
+                    for voxel in filled_matrix.filled_voxels() {
+                        // draw voxel
+                        let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                        let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                        voxel_renderer.draw_voxel(min_point, max_point, [0.54, 0.27, 0.07, 0.85]);
+                        // draw mesh
+                        let position =
+                            [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                        draw_cube_mesh(position, vec3_add(position, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
+                    }
+
                     // Draw cursor
                     let cursor_color = match cursor_state {
                         CursorState::Moving =>
-                            [0.0, 0.0, 1.0, 1.0],
+                            if filled_matrix.is_filled(&cursor) {
+                                [1.0, 0.0, 0.0, 1.0]
+                            } else {
+                                [0.0, 0.0, 1.0, 1.0]
+                            },
                         CursorState::Filling =>
-                            if cursor.diff(&nanobot).is_near() {
+                            if cursor.diff(&nanobot).is_near() && !filled_matrix.is_filled(&cursor) {
                                 [0.0, 1.0, 0.0, 1.0]
                             } else {
                                 [1.0, 0.0, 0.0, 1.0]
@@ -258,7 +299,20 @@ fn run() -> Result<(), Error> {
                     let min_point = [nanobot.x as f32, nanobot.y as f32, nanobot.z as f32];
                     let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
                     voxel_renderer.draw_voxel(min_point, max_point, [1.0, 1.0, 0.0, 1.0]);
-                    // draw_cube_mesh(min_point, vec3_add(min_point, [1.0, 1.0, 1.0]), [1.0, 1.0, 0.0, 1.0]);
+                    draw_cube_mesh(min_point, vec3_add(min_point, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
+                }
+
+                let total = script.len();
+                for (i, cmd) in script.iter().enumerate() {
+                    if (i as isize) < (total as isize) - 10 {
+                        continue;
+                    }
+
+                    debug_renderer.draw_text_on_screen(
+                        &format!("{}: {:?}", i, cmd),
+                        [10, 10 + i as i32 * 20],
+                        [0.0, 0.0, 0.0, 1.0],
+                    );
                 }
 
                 voxel_renderer.render(&mut win.encoder, &mut win.factory, &win.output_color, &win.output_stencil, camera_projection)
@@ -293,6 +347,36 @@ fn run() -> Result<(), Error> {
                         cursor_state = CursorState::Filling,
                     CursorState::Filling =>
                         cursor_state = CursorState::Moving,
+                },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::Space), state: ButtonState::Release, .. })) =>
+                match cursor_state {
+                    CursorState::Moving =>
+                        if !filled_matrix.is_filled(&cursor) {
+                            let maybe_route = router::plan_route(
+                                &nanobot,
+                                &cursor,
+                                &filled_matrix,
+                                None.into_iter(),
+                            );
+                            if let Some((route, _)) = maybe_route {
+                                last_route = Some(route.iter().map(|mv| mv.coord).collect());
+                                script.extend(route.into_iter().flat_map(|mv| mv.cmd_performed));
+                                nanobot = cursor;
+                            }
+                        },
+                    CursorState::Filling =>
+                        if cursor.diff(&nanobot).is_near() && !filled_matrix.is_filled(&cursor) {
+                            filled_matrix.set_filled(&cursor);
+                            script.push(BotCommand::fill(cursor.diff(&nanobot)).unwrap());
+                        },
+                },
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::H), state: ButtonState::Release, .. })) =>
+                if nanobot.x == 0 && nanobot.y == 0 && nanobot.z == 0 {
+                    script.push(BotCommand::halt().unwrap());
+                    let trace = cmd::into_bytes(&script).unwrap();
+                    let file = fs::File::create("a.nbt").unwrap();
+                    let mut writer = io::BufWriter::new(file);
+                    writer.write_all(&trace).unwrap();
                 },
             _ =>
                 (),

@@ -1,6 +1,6 @@
 [package]
 name = "icfpc2018_vis"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Alexey Voznyuk <me@swizard.info>"]
 
 [dependencies]
