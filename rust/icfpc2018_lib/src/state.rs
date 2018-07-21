@@ -5,7 +5,7 @@ use super::{
         Coord,
         Matrix,
         Resolution,
-        // LinearCoordDiff,
+        Region,
     },
     cmd::{
         BotCommand,
@@ -54,6 +54,7 @@ pub enum Error {
     HaltNotAtZeroCoord,
     HaltTooManyBots,
     HaltNotInLow,
+    MoveOutOfBounds {c: Coord},
 }
 
 
@@ -98,9 +99,9 @@ impl State {
         WellformedStatus::Wellformed
     }
 
-    /* Maybe this method should return either Error or Coord[] of volatile coordinates ? */
-    pub fn do_cmd_mut(&mut self, cmd: BotCommand, bot: &mut Bot) -> Result<(), Error> {
+    pub fn do_cmd_mut(&mut self, cmd: BotCommand, bot: &mut Bot) -> Result<HashSet<Coord>, Error> {
         let c = bot.pos;
+        let mut volatile: HashSet<Coord> = [c].iter().cloned().collect();
 
         match cmd {
             BotCommand::Halt => {
@@ -108,17 +109,17 @@ impl State {
                 let bot_ids: Vec<Bid> = self.bots.keys().cloned().collect();
                 let check_the_only_bot = bot_ids == [1];
                 let check_low = self.harmonics == Harmonics::Low;
+
                 match (check_coord, check_the_only_bot, check_low) {
                     (true, true, true) => {
                         self.bots.remove(&1);
-                        Ok(()) // [c]
                     },
-                    (false, _, _) => Err(Error::HaltNotAtZeroCoord),
-                    (_, false, _) => Err(Error::HaltTooManyBots),
-                    (_, _, false) => Err(Error::HaltNotInLow),
+                    (false, _, _) => return Err(Error::HaltNotAtZeroCoord),
+                    (_, false, _) => return Err(Error::HaltTooManyBots),
+                    (_, _, false) => return Err(Error::HaltNotInLow),
                 }
             },
-            BotCommand::Wait => Ok(()),
+            BotCommand::Wait => (),
             BotCommand::Flip => {
                 match self.harmonics {
                     Harmonics::Low => {
@@ -128,26 +129,41 @@ impl State {
                         self.harmonics = Harmonics::Low
                     },
                 };
-                Ok(()) //[c]
             },
-            BotCommand::SMove{ long } => unimplemented!(),
+            BotCommand::SMove{ long } => {
+                let d = long.to_coord_diff();
+                let cf = c.add(d);
+
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+
+                bot.pos = cf;
+                self.energy += 2 * d.l_1_norm();
+
+                volatile.insert(cf);
+            },
             BotCommand::LMove{ short1, short2 } => unimplemented!(),
             BotCommand::Fission{ near, split_m } => unimplemented!(),
             BotCommand::Fill{ near } => {
                 let cf = c.add(near);
-                if (!self.matrix.is_filled(&cf)) {
+                if !self.matrix.is_filled(&cf) {
                     self.matrix.set_filled(&cf);
                     self.energy += 12;
                 }
                 else {
                     self.energy += 6;
                 }
-                Ok(()) // [c,cf]
+
+                for c in (Region::from_corners(&c, &cf).coord_set().iter()) {
+                    volatile.insert(*c);
+                }
             },
             BotCommand::FusionP{ near } => unimplemented!(),
             BotCommand::FusionS{ near } => unimplemented!(),
 
         }
+        Ok(volatile)
     }
 
     pub fn step_mut(&mut self) {
