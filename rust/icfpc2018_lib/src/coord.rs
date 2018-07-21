@@ -168,6 +168,16 @@ impl Region {
             coord.z >= self.min.z && coord.z <= self.max.z
     }
 
+    pub fn intersects(&self, other: &Region) -> bool {
+        let not_x_proj =
+            self.max.z < other.min.z || other.max.z < self.min.z || self.max.y < other.min.y || other.max.y < self.min.y;
+        let not_y_proj =
+            self.max.z < other.min.z || other.max.z < self.min.z || self.max.x < other.min.x || other.max.x < self.min.x;
+        let not_z_proj =
+            self.max.y < other.min.y || other.max.y < self.min.y || self.max.x < other.min.x || other.max.x < self.min.x;
+        !(not_x_proj || not_y_proj || not_z_proj)
+    }
+
     pub fn dimension(&self) -> RegionDim {
         match (self.min.x == self.max.x, self.min.y == self.max.y, self.min.z == self.max.z) {
             (true, true, true) =>
@@ -484,6 +494,26 @@ mod tests {
                                                              &Coord { x: 2, y: 2, z: 2, })));
         assert!(matrix.contains_filled(&Region::from_corners(&Coord { x: 1, y: 1, z: 1, },
                                                              &Coord { x: 2, y: 2, z: 2, })));
+    }
+
+    #[test]
+    fn regions_intersect() {
+        let region = Region {
+            min: Coord { x: 0, y: 0, z: 0, },
+            max: Coord { x: 1, y: 1, z: 1, },
+        };
+        assert!(region.intersects(&Region {
+            min: Coord { x: 1, y: 1, z: 1, },
+            max: Coord { x: 2, y: 2, z: 2, },
+        }));
+        assert!(region.intersects(&Region {
+            min: Coord { x: 1, y: 1, z: 0, },
+            max: Coord { x: 2, y: 1, z: 2, },
+        }));
+        assert!(!region.intersects(&Region {
+            min: Coord { x: 0, y: 2, z: 0, },
+            max: Coord { x: 2, y: 2, z: 2, },
+        }));
     }
 
 }

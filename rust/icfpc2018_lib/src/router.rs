@@ -51,8 +51,12 @@ impl Move {
             .filter(move |mv| mv.0.coord.z >= 0 && mv.0.coord.z < dim)
             .filter(move |mv| !matrix.is_filled(&mv.0.coord))
             .filter(move |&(ref mv, ref more_volatiles)| {
-                !volatile.clone().chain(more_volatiles.clone())
-                    .any(|region| region.contains(&mv.coord) || matrix.contains_filled(&region))
+                let volatiles_intersects = volatile.clone()
+                    .any(|region_a| more_volatiles.clone().any(|region_b| region_a.intersects(&region_b)));
+                let volatiles_restrict = volatile.clone()
+                    .chain(more_volatiles.clone())
+                    .any(|region| region.contains(&mv.coord) || matrix.contains_filled(&region));
+                return !volatiles_intersects && !volatiles_restrict
             })
             .map(|mv| mv.0)
     }
