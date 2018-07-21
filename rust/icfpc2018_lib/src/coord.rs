@@ -155,6 +155,13 @@ impl LinearCoordDiff {
 }
 
 impl Region {
+    pub fn from_corners(l: &Coord, r: &Coord) -> Region {
+        Region {
+            min: Coord { x: cmp::min(l.x, r.x), y: cmp::min(l.y, r.y), z: cmp::min(l.z, r.z) },
+            max: Coord { x: cmp::max(l.x, r.x), y: cmp::max(l.y, r.y), z: cmp::max(l.z, r.z) },
+        }
+    }
+
     pub fn dimension(&self) -> RegionDim {
         match (self.min.x == self.max.x, self.min.y == self.max.y, self.min.z == self.max.z) {
             (true, true, true) =>
