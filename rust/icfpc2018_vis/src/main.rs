@@ -99,7 +99,7 @@ fn run() -> Result<(), Error> {
              .long("model")
              .value_name("FILE")
              .help("Model file to visualize")
-             .default_value("../../problems/LA001_tgt.mdl")
+             .default_value("../../problems/FA001_tgt.mdl")
              .takes_value(true))
         .get_matches();
 
