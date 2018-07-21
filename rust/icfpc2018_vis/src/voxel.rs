@@ -62,8 +62,14 @@ impl<R> VoxelRenderer<R> where R: gfx::Resources {
     }
 
     pub fn draw_voxel(&mut self, min: [f32; 3], max: [f32; 3], color: [f32; 4]) {
-        self.vertex_data.push(Vertex{position: min, color: color});
-        self.vertex_data.push(Vertex{position: max, color: color});
+        self.vertex_data.push(Vertex{position: [min[0], min[1], min[2]], color: color});
+        // self.vertex_data.push(Vertex{position: [max[0], min[1], min[2]], color: color});
+        // self.vertex_data.push(Vertex{position: [min[0], max[1], min[2]], color: color});
+        // self.vertex_data.push(Vertex{position: [max[0], max[1], min[2]], color: color});
+        // self.vertex_data.push(Vertex{position: [min[0], min[1], max[2]], color: color});
+        // self.vertex_data.push(Vertex{position: [max[0], min[1], max[2]], color: color});
+        // self.vertex_data.push(Vertex{position: [min[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], max[2]], color: color});
     }
 
     pub fn render<C, F, T> (

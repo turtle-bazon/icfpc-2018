@@ -198,31 +198,31 @@ fn run() -> Result<(), Error> {
 
                 // Draw matrix
                 for voxel in matrix.filled_voxels() {
-                    let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
-                    let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
-                    voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 1.0]);
+                    // let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                    // let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                    // voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 1.0]);
 
-                    // let position =
-                    //     [voxel.x as f32, voxel.y as f32, voxel.z as f32];
-                    // let mut draw_edge = |diff_src, diff_dst| {
-                    //     debug_renderer.draw_line(
-                    //         vec3_add(position, diff_src),
-                    //         vec3_add(position, diff_dst),
-                    //         [0.0, 0.0, 0.0, 1.0],
-                    //     );
-                    // };
-                    // draw_edge([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
-                    // draw_edge([1.0, 0.0, 0.0], [1.0, 1.0, 0.0]);
-                    // draw_edge([1.0, 1.0, 0.0], [0.0, 1.0, 0.0]);
-                    // draw_edge([0.0, 1.0, 0.0], [0.0, 0.0, 0.0]);
-                    // draw_edge([0.0, 0.0, 1.0], [1.0, 0.0, 1.0]);
-                    // draw_edge([1.0, 0.0, 1.0], [1.0, 1.0, 1.0]);
-                    // draw_edge([1.0, 1.0, 1.0], [0.0, 1.0, 1.0]);
-                    // draw_edge([0.0, 1.0, 1.0], [0.0, 0.0, 1.0]);
-                    // draw_edge([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
-                    // draw_edge([1.0, 0.0, 0.0], [1.0, 0.0, 1.0]);
-                    // draw_edge([1.0, 1.0, 0.0], [1.0, 1.0, 1.0]);
-                    // draw_edge([0.0, 1.0, 0.0], [0.0, 1.0, 1.0]);
+                    let position =
+                        [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                    let mut draw_edge = |diff_src, diff_dst| {
+                        debug_renderer.draw_line(
+                            vec3_add(position, diff_src),
+                            vec3_add(position, diff_dst),
+                            [0.0, 0.0, 0.0, 1.0],
+                        );
+                    };
+                    draw_edge([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+                    draw_edge([1.0, 0.0, 0.0], [1.0, 1.0, 0.0]);
+                    draw_edge([1.0, 1.0, 0.0], [0.0, 1.0, 0.0]);
+                    draw_edge([0.0, 1.0, 0.0], [0.0, 0.0, 0.0]);
+                    draw_edge([0.0, 0.0, 1.0], [1.0, 0.0, 1.0]);
+                    draw_edge([1.0, 0.0, 1.0], [1.0, 1.0, 1.0]);
+                    draw_edge([1.0, 1.0, 1.0], [0.0, 1.0, 1.0]);
+                    draw_edge([0.0, 1.0, 1.0], [0.0, 0.0, 1.0]);
+                    draw_edge([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+                    draw_edge([1.0, 0.0, 0.0], [1.0, 0.0, 1.0]);
+                    draw_edge([1.0, 1.0, 0.0], [1.0, 1.0, 1.0]);
+                    draw_edge([0.0, 1.0, 0.0], [0.0, 1.0, 1.0]);
                 }
 
                 voxel_renderer.render(&mut win.encoder, &mut win.factory, &win.output_color, &win.output_stencil, camera_projection)
