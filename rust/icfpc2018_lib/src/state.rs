@@ -231,7 +231,7 @@ impl State {
 
         let bids: Vec<Bid> = self.bots.keys().cloned().collect();
         for (bid, cmd) in bids.iter().zip(commands) {
-            let res = self.do_cmd_mut(bid, cmd);
+            let _res = self.do_cmd_mut(bid, cmd);
 
         }
 

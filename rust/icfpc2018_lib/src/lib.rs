@@ -1,3 +1,4 @@
+extern crate rtt;
 extern crate bit_vec;
 extern crate pathfinding;
 #[macro_use] extern crate itertools;
