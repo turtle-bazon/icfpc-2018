@@ -123,11 +123,11 @@ fn run() -> Result<(), Error> {
         let text_renderer = {
             gfx_text::new(window.factory.clone()).unwrap()
         };
-        DebugRenderer::new(window.factory.clone(), text_renderer, 64)
+        DebugRenderer::new(window.factory.clone(), text_renderer, 65536)
             .map_err(PistonError::DebugRendererInit)
             .map_err(Error::Piston)?
     };
-    let mut voxel_renderer = voxel::VoxelRenderer::new(window.factory.clone(), 64)
+    let mut voxel_renderer = voxel::VoxelRenderer::new(window.factory.clone(), 65536)
         .map_err(PistonError::VoxelRenderer)
         .map_err(Error::Piston)?;
 
