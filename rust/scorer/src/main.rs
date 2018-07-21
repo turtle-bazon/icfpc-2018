@@ -36,33 +36,22 @@ fn main() -> Result<(),Error> {
              .long("trace")
              .help("Original trace (In)",)
              .default_value("../../traces/FA001.nbt")
-             .takes_value(true))
-
-        // .arg(Arg::with_name("optimized")
-        //      .display_order(2)
-        //      .short("o")
-        //      .long("out")
-        //      .help("Optimized trace (Out)")
-        //      .takes_value(true));
-        ;
+             .takes_value(true));
 
     let matches = app.get_matches();
     let model_filename = value_t!(matches, "model", String).map_err(Error::Args)?;
     let trace_filename = value_t!(matches, "trace", String).map_err(Error::Args)?;
 
-    let mut model = kernel::model::read_model_file(model_filename).unwrap();
-
-
-    // let original = value_t!(matches, "original", String).map_err(Error::Args)?;
-    // let optimized = value_t!(matches, "optimized", String).map_err(Error::Args)?;
-
+    let ref_model = kernel::model::read_model_file(model_filename).unwrap();
 
     let mut f = File::open(&trace_filename).map_err(Error::Io)?;
     let mut buffer = Vec::new();
     f.read_to_end(&mut buffer).map_err(Error::Io)?;
     let mut cmds = kernel::cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
 
-    let mut state = kernel::state::State::new(model, vec![]);
+
+    let mut matrix = kernel::coord::Matrix::new(kernel::coord::Resolution(ref_model.dim() as isize));
+    let mut state = kernel::state::State::new(matrix, vec![]);
     let mut step_counter = 0;
     loop {
         step_counter += 1;
@@ -72,15 +61,16 @@ fn main() -> Result<(),Error> {
                 println!("ERROR: {:?}", e);
                 return Err(Error::State(e));
             },
-            Ok(e) => {
-                println!("Step {}. ENERGY {}", step_counter, state.energy);
-            }
+            Ok(e) => {}
         }
 
         if cmds.is_empty() {
+            println!("ENERGY {} Steps {} ", state.energy, step_counter);
             return Ok(())
         }
     }
+
+    // TODO: Check ref_model and model correspondance by-voxel
 
 }
 
