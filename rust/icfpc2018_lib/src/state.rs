@@ -168,7 +168,7 @@ impl State {
                     return Err(Error::MoveOutOfBounds{c: cf})
                 }
                 let volatile_reg = Region::from_corners(&c, &cf);
-                if !self.matrix.contains_filled(&volatile_reg) {
+                if self.matrix.contains_filled(&volatile_reg) {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
                 }
 
@@ -177,7 +177,7 @@ impl State {
                     return Err(Error::MoveOutOfBounds{c: cff})
                 }
                 let volatile_reg2 = Region::from_corners(&cf, &cff);
-                if !self.matrix.contains_filled(&volatile_reg2) {
+                if self.matrix.contains_filled(&volatile_reg2) {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg2})
                 }
 
