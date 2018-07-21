@@ -4,7 +4,6 @@ use super::{
     coord::{
         Coord,
         Matrix,
-        Resolution,
         Region,
     },
     cmd::{
@@ -179,9 +178,9 @@ impl State {
                     self.energy += 6;
                 }
             },
-            BotCommand::Fission{ near, split_m } => unimplemented!(),
-            BotCommand::FusionP{ near } => unimplemented!(),
-            BotCommand::FusionS{ near } => unimplemented!(),
+            BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
+            BotCommand::FusionP{ near: _ } => unimplemented!(),
+            BotCommand::FusionS{ near: _ } => unimplemented!(),
 
         }
         Ok(volatile)
@@ -193,7 +192,7 @@ impl State {
         let bot_count = self.bots.len();
 
         // take command sequence for this step (and drop them from the trace)
-        let this_step_cmds: Vec<BotCommand> = self.trace.drain(0..bot_count).collect();
+        let _this_step_cmds: Vec<BotCommand> = self.trace.drain(0..bot_count).collect();
 
         // energy step for the step itself
         match self.harmonics {
