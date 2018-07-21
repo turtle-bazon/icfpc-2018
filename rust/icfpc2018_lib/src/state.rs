@@ -4,6 +4,8 @@ use super::{
     coord::{
         Coord,
         Matrix,
+        Resolution,
+        // LinearCoordDiff,
     },
     cmd::{
         BotCommand,
@@ -45,8 +47,31 @@ pub enum WellformedStatus {
     SeedIsTheSameAsActiveBot,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Error {
+    StateNotWellformed{status: WellformedStatus},
+    CommandsInterfere,
+}
+
 
 impl State {
+    pub fn new(matrix: Matrix, trace: Vec<BotCommand>) -> State {
+        let mut bots = BTreeMap::new();
+
+        bots.insert(1, Bot {
+            pos: Coord { x:0, y:0, z:0 },
+            seeds: (2..21).collect(),
+        });
+
+        State {
+            energy: 0,
+            harmonics: Harmonics::Low,
+            matrix,
+            bots,
+            trace,
+        }
+    }
+
     pub fn wellformed(&self) -> WellformedStatus {
         if let Harmonics::Low = self.harmonics {
             if !self.matrix.all_voxels_are_grounded() {
@@ -68,5 +93,75 @@ impl State {
         }
 
         WellformedStatus::Wellformed
+    }
+
+    pub fn do_cmd_mut(&mut self, cmd: BotCommand, bot: &mut Bot) {
+        match cmd {
+            BotCommand::Halt => {
+                unimplemented!()
+            },
+            BotCommand::Wait => (),
+            BotCommand::Flip => unimplemented!(),
+            BotCommand::SMove{ long } => unimplemented!(),
+            BotCommand::LMove{ short1, short2 } => unimplemented!(),
+            BotCommand::Fission{ near, split_m } => unimplemented!(),
+            BotCommand::Fill{ near } => unimplemented!(),
+            BotCommand::FusionP{ near } => unimplemented!(),
+            BotCommand::FusionS{ near } => unimplemented!(),
+
+        }
+    }
+
+    pub fn step_mut(&mut self) {
+        // checks here
+        //...
+        let bot_count = self.bots.len();
+
+        // take command sequence for this step (and drop them from the trace)
+        let this_step_cmds: Vec<BotCommand> = self.trace.drain(0..bot_count).collect();
+
+        // energy step for the step itself
+        match(self.harmonics) {
+            Harmonics::Low =>
+                self.energy += 3 * self.matrix.dim() * self.matrix.dim() * self.matrix.dim(),
+            Harmonics::High =>
+                self.energy += 30 * self.matrix.dim() * self.matrix.dim() * self.matrix.dim(),
+        }
+
+        // energy for each nanobot
+        self.energy += 20 * bot_count;
+
+        // here run commands
+        // ...
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use super::super::{
+        coord::{
+            Coord,
+            Matrix,
+            Resolution,
+        }
+    };
+
+    #[test]
+    fn test_init_state() {
+        let matrix = Matrix::new(Resolution(10));
+        let trace = vec![];
+        let st = State::new(matrix, trace.to_vec());
+
+        assert_eq!(st.energy, 0);
+        assert_eq!(st.harmonics, Harmonics::Low);
+        // assert_eq!(st.matrix, matrix);
+        assert_eq!(st.trace, trace);
+
+        // check the first (and the only) bot
+        assert_eq!(st.bots.len(), 1);
+        let bot = st.bots.get(&1).unwrap();
+        assert_eq!(bot.pos, Coord { x:0, y:0, z:0 });
+        assert_eq!(bot.seeds, vec![2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]);
     }
 }
