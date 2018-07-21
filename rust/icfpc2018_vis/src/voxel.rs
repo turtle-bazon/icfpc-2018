@@ -53,7 +53,7 @@ impl<R> VoxelRenderer<R> where R: gfx::Resources {
             };
             let pso = factory.create_pipeline_state(
                 &self.shaders,
-                gfx::Primitive::LineList,
+                gfx::Primitive::TriangleList,
                 gfx::state::Rasterizer::new_fill(),
                 init,
             ).map_err(Error::CreatePipelineState)?;
@@ -62,14 +62,48 @@ impl<R> VoxelRenderer<R> where R: gfx::Resources {
     }
 
     pub fn draw_voxel(&mut self, min: [f32; 3], max: [f32; 3], color: [f32; 4]) {
+        // front
         self.vertex_data.push(Vertex{position: [min[0], min[1], min[2]], color: color});
-        // self.vertex_data.push(Vertex{position: [max[0], min[1], min[2]], color: color});
-        // self.vertex_data.push(Vertex{position: [min[0], max[1], min[2]], color: color});
-        // self.vertex_data.push(Vertex{position: [max[0], max[1], min[2]], color: color});
-        // self.vertex_data.push(Vertex{position: [min[0], min[1], max[2]], color: color});
-        // self.vertex_data.push(Vertex{position: [max[0], min[1], max[2]], color: color});
-        // self.vertex_data.push(Vertex{position: [min[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], min[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], max[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], min[1], min[2]], color: color});
+        // back
+        self.vertex_data.push(Vertex{position: [min[0], min[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], min[1], max[2]], color: color});
         self.vertex_data.push(Vertex{position: [max[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], min[1], max[2]], color: color});
+        // left
+        self.vertex_data.push(Vertex{position: [min[0], min[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], min[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], max[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], min[1], min[2]], color: color});
+        // right
+        self.vertex_data.push(Vertex{position: [max[0], min[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], min[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], min[1], min[2]], color: color});
+        // top
+        self.vertex_data.push(Vertex{position: [min[0], max[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], max[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], max[1], min[2]], color: color});
+        // bottom
+        self.vertex_data.push(Vertex{position: [min[0], min[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], min[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], min[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], min[1], max[2]], color: color});
+        self.vertex_data.push(Vertex{position: [max[0], min[1], min[2]], color: color});
+        self.vertex_data.push(Vertex{position: [min[0], min[1], min[2]], color: color});
     }
 
     pub fn render<C, F, T> (
