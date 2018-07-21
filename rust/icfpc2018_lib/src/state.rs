@@ -49,8 +49,9 @@ pub enum WellformedStatus {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Error {
     StateNotWellformed{status: WellformedStatus},
-    InvalidBid{bid: Bid},
+    NotEnoughCommands,
     CommandsInterfere,
+    InvalidBid{bid: Bid},
     HaltNotAtZeroCoord,
     HaltTooManyBots,
     HaltNotInLow,
@@ -212,9 +213,16 @@ impl State {
         Ok(volatile)
     }
 
-    pub fn step_mut(&mut self, commands: &mut Vec<BotCommand>) {
-        if let WellformedStatus::Wellformed = self.wellformed() {
+    pub fn step_mut(&mut self, commands: &mut Vec<BotCommand>) -> Result<(), Error> {
+        let wf = self.wellformed();
+        if WellformedStatus::Wellformed != wf {
+            return Err(Error::StateNotWellformed{status: wf})
         }
+
+        if commands.len() >= self.bots.len() {
+            return Err(Error::NotEnoughCommands)
+        }
+
         // energy step for the step itself
         match self.harmonics {
             Harmonics::Low =>
@@ -226,19 +234,13 @@ impl State {
         // energy for each nanobot
         self.energy += 20 * self.bots.len();
 
-        // here run commands
-        assert!(commands.len() >= self.bots.len());
-
         let bids: Vec<Bid> = self.bots.keys().cloned().collect();
         for (bid, cmd) in bids.iter().zip(commands) {
+            /* TODO: handle errors better */
             let res = self.do_cmd_mut(bid, cmd);
 
         }
-
-        ()
-        // take command sequence for this step (and drop them from the trace)
-        // let _this_step_cmds: Vec<BotCommand> = self.trace.drain(0..bot_count).collect();
-        // ...
+        Ok(())
     }
 }
 
