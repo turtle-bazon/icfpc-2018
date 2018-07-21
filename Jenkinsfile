@@ -6,16 +6,6 @@ pipeline {
   }
 
   stages {
-    stage('Build') {
-      steps {
-        echo 'Build OK'
-      }
-    }
-    stage('Test') {
-      steps {
-        echo 'Test OK'
-      }
-    }
     stage('Submit') {
       when {
         anyOf {
@@ -25,20 +15,31 @@ pipeline {
       }
       environment {
         SUBMISSION_SSH_URL = 'icfpc@icfpc.gnolltech.org:public/2018/'
-        SUBMISSION_PASSWORD = 'N4yqRa2qrqNy'
+        SUBMISSION_PASSWORD = '83a5a58b38d74178b43b65caeef23500'
         BUILD_NAME = "${GIT_BRANCH}-${BUILD_NUMBER}-${GIT_COMMIT}"
       }
       steps {
         sshagent (credentials: ['DEPLOYMENT_KEY']) {
-          sh "./make-submission.sh ${BUILD_NAME} ${SUBMISSION_PASSWORD} "
-          sh "scp -q -oStrictHostKeyChecking=no ${BUILD_NAME}.zip ${BUILD_NAME}.zip.hash ${SUBMISSION_SSH_URL}"
+          sh "make BUILD_NAME=${BUILD_NAME} TEAM_ID=${SUBMISSION_PASSWORD} submission"
         }
       }
     }
   }
   post {
     always {
-      step([$class: 'TelegramBotBuilder', message: "${currentBuild.currentResult} -- ${env.JOB_NAME} -- ${env.CHANGE_URL}\nDuration: ${currentBuild.durationString}\nDetails: ${BUILD_URL}"])
+      script {
+        def changeLog = "```";
+        for (int i = 0; i < currentBuild.changeSets.size(); i++) {
+          def entries = currentBuild.changeSets[i].items
+          for (int j = 0; j < entries.length; j++) {
+            def entry = entries[j]
+            changeLog += " * \"${entry.msg}\" by ${entry.author}\n"
+          }
+        }
+        changeLog += "```"
+
+        step([$class: 'TelegramBotBuilder', message: "*${currentBuild.currentResult}*  ${env.JOB_NAME}\nChanges:\n${changeLog}[Build log](${BUILD_URL})"]);
+      }
     }
   }
 }
