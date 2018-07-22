@@ -13,7 +13,7 @@ pub type M = isize;
 #[derive(Debug)]
 pub struct Resolution(pub M);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Coord {
     pub x: M,
     pub y: M,

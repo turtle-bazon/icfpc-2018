@@ -19,7 +19,7 @@ pub enum Harmonics {
 
 pub type Bid = usize;
 
-#[derive(Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Bot {
     pub pos: Coord,
     pub seeds: Vec<Bid>,
