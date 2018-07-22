@@ -1,15 +1,8 @@
 use std;
 use std::collections::VecDeque;
 
-use icfpc2018_lib as kernel;
+use icfpc2018_lib::coord::{LinearCoordDiff,Axis,M};
 use kernel::cmd::BotCommand;
-use kernel::coord::{LinearCoordDiff,Axis,M,Coord,CoordDiff};
-
-#[derive(Debug)]
-enum Error {
-    ModelReadError(kernel::model::Error),
-    Cmd(kernel::cmd::Error),
-}
 
 #[derive(Debug,Clone,Copy)]
 struct Move {
@@ -23,9 +16,9 @@ impl Move {
             value: l.get_value(),
         }
     }
-    fn is_lld(&self) -> bool {
+    /*fn is_lld(&self) -> bool {
         return (self.value>=-15)&&(self.value<=15);
-    }
+    }*/
     fn to_llds(&self) -> Vec<LinearCoordDiff> {
         let dest = if self.value>0 {1} else {-1};
         let mut aval = self.value.abs();
@@ -40,6 +33,7 @@ impl Move {
         }
         res
     }
+    /*
     fn to_lld(&self) -> LinearCoordDiff {
         LinearCoordDiff::Long{ axis: self.axis, value: self.value }
     }
@@ -48,7 +42,7 @@ impl Move {
     }
     fn to_sld(&self) -> LinearCoordDiff {
         LinearCoordDiff::Short{ axis: self.axis, value: self.value }
-    }
+    }*/
 }
 
 fn optimize_moves(movings: &mut Vec<Move>) {
