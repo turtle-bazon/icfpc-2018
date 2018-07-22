@@ -165,10 +165,10 @@ static FRAGMENT_SRC: &'static [u8]= b"
     #version 150
 
     in vec4 v_color;
-    out vec4 out_color;
+    out vec4 o_Color;
 
     void main() {
-        out_color = v_color;
+        o_Color = v_color;
     }
 ";
 
