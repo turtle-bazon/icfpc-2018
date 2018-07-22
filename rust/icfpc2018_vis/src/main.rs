@@ -10,9 +10,10 @@ extern crate icfpc2018_lib;
 #[macro_use] extern crate log;
 #[macro_use] extern crate clap;
 
+use std::fs::File;
 use std::{
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
     process,
 };
 
@@ -51,6 +52,7 @@ use icfpc2018_lib::{
     cmd::{self, BotCommand},
     router,
 };
+use icfpc2018_lib as kernel;
 
 mod voxel;
 
@@ -71,6 +73,11 @@ enum Error {
     MissingParameter(&'static str),
     Model(model::Error),
     Piston(PistonError),
+    Args(clap::Error),
+    Io(std::io::Error),
+    ModelReadError(kernel::model::Error),
+    Cmd(kernel::cmd::Error),
+    State(kernel::state::Error),
 }
 
 #[derive(Debug)]
@@ -100,15 +107,34 @@ fn run() -> Result<(), Error> {
              .help("Model file to visualize")
              .default_value("../../problems/FA001_tgt.mdl")
              .takes_value(true))
+        .arg(Arg::with_name("trace")
+             .display_order(1)
+             .short("t")
+             .long("trace")
+             .help("Trace file",)
+             .default_value("../../traces/FA001.nbt")
+             .takes_value(true))
         .get_matches();
 
     let _assets_dir = matches.value_of("assets-dir")
         .ok_or(Error::MissingParameter("assets-dir"))?;
     let model_file = matches.value_of("model")
         .ok_or(Error::MissingParameter("model"))?;
+    let trace_file = matches.value_of("trace")
+        .ok_or(Error::MissingParameter("trace"))?;
 
-    let matrix = model::read_model_file(model_file)
-        .map_err(Error::Model)?;
+    let ref_model = match model::read_model_file(model_file) {
+        Err(e) => return Err(Error::ModelReadError(e)),
+        Ok(m) => m,
+    };
+    let matrix = ref_model.new_empty_of_same_size();
+
+    let mut f = File::open(&trace_file).map_err(Error::Io)?;
+    let mut buffer = Vec::new();
+    f.read_to_end(&mut buffer).map_err(Error::Io)?;
+    let mut cmds = kernel::cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
+
+    let mut state = kernel::state::State::new(matrix, vec![]);
 
     let opengl = OpenGL::V4_1;
     let mut window: PistonWindow = WindowSettings::new("icfpc2018 visualizer", [SCREEN_WIDTH, SCREEN_HEIGHT])
@@ -138,12 +164,12 @@ fn run() -> Result<(), Error> {
         aspect_ratio: (SCREEN_WIDTH as f32) / (SCREEN_HEIGHT as f32)
     }.projection();
 
-    let center_point_value = (matrix.dim() / 2) as f32;
+    let center_point_value = (state.matrix.dim() / 2) as f32;
     let mut orbit_zoom_camera: OrbitZoomCamera<f32> = OrbitZoomCamera::new(
         [center_point_value, center_point_value, -center_point_value],
         OrbitZoomCameraSettings::default()
     );
-    orbit_zoom_camera.distance = (matrix.dim() * 5 / 4) as f32;
+    orbit_zoom_camera.distance = (state.matrix.dim() * 5 / 4) as f32;
 
     enum CursorState {
         Moving,
@@ -151,7 +177,7 @@ fn run() -> Result<(), Error> {
     }
 
     let mut script = Vec::new();
-    let mut filled_matrix = Matrix::new(Resolution(matrix.dim() as isize));
+    let mut filled_matrix = Matrix::new(Resolution(state.matrix.dim() as isize));
     let mut nanobot = Coord { x: 0, y: 0, z: 0, };
     let mut cursor = Coord { x: 1, y: 0, z: 1, };
     let mut cursor_state = CursorState::Moving;
@@ -199,11 +225,11 @@ fn run() -> Result<(), Error> {
                 debug_renderer.draw_text_at_position("Z", [0.0, 0.0, -6.0], [0.0, 0.0, 1.0, 1.0]);
 
                 {
-                    let dim = matrix.dim() as f32;
+                    let dim = state.matrix.dim() as f32;
 
                     // Draw floor
                     //voxel_renderer.draw_voxel([0.0, 0.0, 0.0], [dim, -0.5, dim], [0.33, 0.33, 0.33, 0.5]);
-                    for i in 0 .. matrix.dim() {
+                    for i in 0 .. state.matrix.dim() {
                         debug_renderer.draw_line([i as f32, 0.0, 0.0], [i as f32, 0.0, -dim], [0.0, 0.0, 0.0, 1.0]);
                         debug_renderer.draw_line([0.0, 0.0, - (i as f32)], [dim, 0.0, -(i as f32)], [0.0, 0.0, 0.0, 1.0]);
                     }
@@ -242,14 +268,14 @@ fn run() -> Result<(), Error> {
 
                     // Draw model matrix
                     if show_model {
-                        for voxel in matrix.filled_voxels() {
+                        for voxel in state.matrix.filled_voxels() {
                             if filled_matrix.is_filled(&voxel) {
                                 continue;
                             }
                             // draw voxel
                             let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
                             let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
-                            voxel_renderer.draw_voxel(min_point, max_point, [0.0, 0.0, 0.0, 0.15]);
+                            voxel_renderer.draw_voxel(min_point, max_point, [0.0, 1.0, 0.0, 1.0]);
                             // draw mesh
                             let position =
                                 [voxel.x as f32, voxel.y as f32, voxel.z as f32];
@@ -258,7 +284,7 @@ fn run() -> Result<(), Error> {
                     }
 
                     // Draw filled matrix
-                    for voxel in filled_matrix.filled_voxels() {
+                    /*for voxel in filled_matrix.filled_voxels() {
                         // draw voxel
                         let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
                         let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
@@ -267,10 +293,10 @@ fn run() -> Result<(), Error> {
                         let position =
                             [voxel.x as f32, voxel.y as f32, voxel.z as f32];
                         draw_cube_mesh(position, vec3_add(position, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
-                    }
+                    }*/
 
                     // Draw cursor
-                    let cursor_color = match cursor_state {
+                    /*let cursor_color = match cursor_state {
                         CursorState::Moving =>
                             if filled_matrix.is_filled(&cursor) {
                                 [1.0, 0.0, 0.0, 1.0]
@@ -296,13 +322,15 @@ fn run() -> Result<(), Error> {
                     voxel_renderer.draw_voxel(y_proj_min, y_proj_max, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);
                     let z_proj_min = [min_point[0], min_point[1], 0.0];
                     let z_proj_max = vec3_add(z_proj_min, [1.0, 1.0, 0.0]);
-                    voxel_renderer.draw_voxel(z_proj_min, z_proj_max, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);
+                    voxel_renderer.draw_voxel(z_proj_min, z_proj_max, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);*/
 
-                    // Draw nanobot
-                    let min_point = [nanobot.x as f32, nanobot.y as f32, nanobot.z as f32];
-                    let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
-                    voxel_renderer.draw_voxel(min_point, max_point, [1.0, 1.0, 0.0, 1.0]);
-                    draw_cube_mesh(min_point, vec3_add(min_point, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
+                    // Draw nanobots
+                    for (bid, bot) in state.bots.iter() {
+                        let min_point = [bot.pos.x as f32, bot.pos.y as f32, bot.pos.z as f32];
+                        let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                        voxel_renderer.draw_voxel(min_point, max_point, [1.0, 1.0, 0.0, 1.0]);
+                        draw_cube_mesh(min_point, vec3_add(min_point, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
+                    }
                 }
 
                 let total = script.len();
@@ -332,6 +360,10 @@ fn run() -> Result<(), Error> {
         }
 
         match event {
+            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::Return), state: ButtonState::Release, .. })) =>
+                {
+                    state.step_mut(&mut cmds);
+                },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::Q), state: ButtonState::Release, .. })) =>
                 return Ok(()),
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::I), state: ButtonState::Release, .. })) =>
@@ -341,13 +373,13 @@ fn run() -> Result<(), Error> {
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::S), state: ButtonState::Release, .. })) =>
                 if cursor.z > 0 { cursor.z -= 1; },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::D), state: ButtonState::Release, .. })) =>
-                if cursor.x + 1 < matrix.dim() as isize { cursor.x += 1; },
+                if cursor.x + 1 < state.matrix.dim() as isize { cursor.x += 1; },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::W), state: ButtonState::Release, .. })) =>
-                if cursor.z + 1 < matrix.dim() as isize { cursor.z += 1; },
+                if cursor.z + 1 < state.matrix.dim() as isize { cursor.z += 1; },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::F), state: ButtonState::Release, .. })) =>
                 if cursor.y > 0 { cursor.y -= 1; },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::R), state: ButtonState::Release, .. })) =>
-                if cursor.y + 1 < matrix.dim() as isize { cursor.y += 1; },
+                if cursor.y + 1 < state.matrix.dim() as isize { cursor.y += 1; },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::Tab), state: ButtonState::Release, .. })) =>
                 match cursor_state {
                     CursorState::Moving =>
@@ -364,7 +396,7 @@ fn run() -> Result<(), Error> {
                                 &cursor,
                                 &filled_matrix,
                                 None.into_iter(),
-                                matrix.dim() * matrix.dim() * matrix.dim(),
+                                state.matrix.dim() * state.matrix.dim() * state.matrix.dim(),
                             );
                             if let Some(route) = maybe_route {
                                 let mut script_route = Vec::new();
@@ -391,7 +423,7 @@ fn run() -> Result<(), Error> {
                         if filled_matrix.is_filled(&coord) {
                             continue;
                         }
-                        if !matrix.is_filled(&coord) {
+                        if !state.matrix.is_filled(&coord) {
                             continue;
                         }
                         filled_matrix.set_filled(&coord);
