@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use rand::{self, Rng};
 
 use rtt::{
@@ -13,39 +12,31 @@ use rtt::{
 use super::super::{
     coord::{
         Coord,
+        CoordDiff,
         Region,
         Matrix,
     },
-    cmd::BotCommand,
+    // cmd::BotCommand,
 };
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct Move {
-    pub coord: Coord,
-    pub cmd_performed: Option<BotCommand>,
-}
 
 pub fn plan_route<VI>(
     &bot_start: &Coord,
-    bot_finish: &Coord,
+    &bot_finish: &Coord,
     matrix: &Matrix,
     volatile: VI,
     max_iters: usize,
 )
-    -> Option<(Vec<Move>, usize)> where
+    -> Option<(Vec<()>, usize)> where
     VI: Iterator<Item = Region> + Clone
 {
-    let start = Move { coord: bot_start, cmd_performed: None, };
-
     let mut rng = rand::thread_rng();
-    let mut visited = HashSet::new();
+    let mut visited_regions = Vec::new();
     let mut iters = 0;
 
     let planner = rtt::PlannerInit::new(EmptyRandomTree::new());
-    let planner = planner.add_root_ok(|empty_rtt: EmptyRandomTree<Move>| Ok(empty_rtt.add_root(start)));
-    let mut planner_node = planner.root_node_ok(|rtt: &mut RandomTree<Move>| {
+    let planner = planner.add_root_ok(|empty_rtt: EmptyRandomTree<Coord>| Ok(empty_rtt.add_root(bot_start)));
+    let mut planner_node = planner.root_node_ok(|rtt: &mut RandomTree<Coord>| {
         let root_ref = rtt.root();
-        visited.insert(start);
         Ok(RttNodeFocus { node_ref: root_ref, goal_reached: false, })
     });
 
@@ -57,13 +48,16 @@ pub fn plan_route<VI>(
         }
         let mut planner_ready_to_sample = planner_node.prepare_sample_ok(|_rtt: &mut _, _focus| Ok(()));
 
+        let mut first_time = true;
         loop {
             if iters >= max_iters {
                 return None;
             }
             iters += 1;
 
-            let planner_sample = planner_ready_to_sample.sample_ok(|_rtt: &mut _| {
+            let planner_sample = planner_ready_to_sample.sample_ok(|_rtt: &mut _| if first_time {
+                Ok(bot_finish)
+            } else {
                 let dim = matrix.dim() as isize;
                 Ok(Coord {
                     x: rng.gen_range(0, dim),
@@ -71,13 +65,14 @@ pub fn plan_route<VI>(
                     z: rng.gen_range(0, dim),
                 })
             });
-            let planner_closest = planner_sample.closest_to_sample_ok(|rtt: &mut RandomTree<Move>, sample: &_| {
+            first_time = false;
+            let planner_closest = planner_sample.closest_to_sample_ok(|rtt: &mut RandomTree<Coord>, sample: &_| {
                 let mut closest;
                 {
                     let states = rtt.states();
-                    closest = (states.root.0, states.root.1.coord.diff(sample).l_1_norm());
+                    closest = (states.root.0, states.root.1.diff(sample).l_1_norm());
                     for (node_ref, mv) in states.children {
-                        let dist = mv.coord.diff(sample).l_1_norm();
+                        let dist = mv.diff(sample).l_1_norm();
                         if dist < closest.1 {
                             closest = (node_ref, dist);
                         }
@@ -86,30 +81,37 @@ pub fn plan_route<VI>(
                 Ok(RttNodeFocus { node_ref: closest.0, goal_reached: false, })
             });
 
-            // let route = {
-            let rtt = planner_closest.rtt();
-            let node_ref = &planner_closest.node_ref().node_ref;
-            let dst = planner_closest.sample();
-            let src = rtt.get_state(node_ref).coord;
-            unimplemented!()
-                //StraightPathIter::new(rtt.get_state(node_ref), dst)
+            let maybe_route = {
+                let rtt = planner_closest.rtt();
+                let node_ref = &planner_closest.node_ref().node_ref;
+                let &dst = planner_closest.sample();
+                let &src = rtt.get_state(node_ref);
+                random_valid_edge_path(
+                    src, dst, matrix,
+                    visited_regions.iter().cloned().chain(volatile.clone()),
+                    &mut rng,
+                )
+            };
 
-            //};
-
-            // if let Some(path_iter) = route {
-            //     let blocked = path_iter.clone().any(|coord| {
-            //         maze[coord.0][coord.1] == b'#' || visited.contains(&coord)
-            //     });
-            //     if !blocked {
-            //         planner_node =
-            //             planner_closest.has_transition_ok(
-            //                 |rtt: &mut _, focus: RttNodeFocus, _sample| perform_move(rtt, focus.node_ref, path_iter, &finish, &mut visited)
-            //             );
-            //         break;
-            //     }
-            // }
-            // planner_ready_to_sample =
-            //     planner_closest.no_transition_ok(|_rtt: &mut _, _node_ref| Ok(()));
+            if let Some((jump, ra, rb, rc)) = maybe_route {
+                planner_node =
+                    planner_closest.has_transition_ok(|rtt: &mut RandomTree<Coord>, focus: RttNodeFocus, _dst| {
+                        visited_regions.push(ra);
+                        visited_regions.push(rb);
+                        visited_regions.push(rc);
+                        let mut node_ref = focus.node_ref;
+                        node_ref = rtt.expand(node_ref, jump.mid_a);
+                        node_ref = rtt.expand(node_ref, jump.mid_b);
+                        node_ref = rtt.expand(node_ref, jump.finish);
+                        Ok(RttNodeFocus {
+                            node_ref,
+                            goal_reached: jump.finish == bot_finish,
+                        })
+                    });
+                break;
+            }
+            planner_ready_to_sample =
+                planner_closest.no_transition_ok(|_rtt: &mut _, _node_ref| Ok(()));
         }
     };
 
@@ -162,13 +164,19 @@ fn random_valid_edge_path<VI, R>(
     R: Rng,
 {
     random_edge_paths(start, finish, rng)
-        .map(|jump| (
-            Region::from_corners(&jump.start, &jump.mid_a),
-            Region::from_corners(&jump.mid_a, &jump.mid_b),
-            Region::from_corners(&jump.mid_b, &jump.finish),
-            jump,
-        ))
-        .filter(move |&(ref ra, ref rb, ref rc, _)| {
+        .map(|jump| {
+            let CoordDiff(delta) = jump.mid_b.diff(&jump.finish);
+            let fix_finish = CoordDiff(Coord {
+                x: if delta.x < 0 { -1 } else if delta.x > 0 { 1 } else { 0 },
+                y: if delta.y < 0 { -1 } else if delta.y > 0 { 1 } else { 0 },
+                z: if delta.z < 0 { -1 } else if delta.z > 0 { 1 } else { 0 },
+            });
+            let ra = Region::from_corners(&jump.start, &jump.mid_a);
+            let rb = Region::from_corners(&jump.mid_a, &jump.mid_b);
+            let rc = Region::from_corners(&jump.mid_b, &jump.finish.add(fix_finish));
+            (jump, ra, rb, rc)
+        })
+        .filter(move |&(_, ref ra, ref rb, ref rc)| {
             !volatile
                 .clone()
                 .any(|reg| reg.intersects(&ra) || reg.intersects(&rb) || reg.intersects(rc))
@@ -176,7 +184,6 @@ fn random_valid_edge_path<VI, R>(
                 && !matrix.contains_filled(&rb)
                 && !matrix.contains_filled(&rc)
         })
-        .map(|(ra, rb, rc, j)| (j, ra, rb, rc))
         .next()
 }
 
@@ -256,7 +263,7 @@ mod test {
             },
             Region { min: Coord { x: 0, y: 0, z: 0 }, max: Coord { x: 0, y: 2, z: 0 } },
             Region { min: Coord { x: 0, y: 2, z: 0 }, max: Coord { x: 0, y: 2, z: 2 } },
-            Region { min: Coord { x: 0, y: 2, z: 2 }, max: Coord { x: 2, y: 2, z: 2 } },
+            Region { min: Coord { x: 0, y: 2, z: 2 }, max: Coord { x: 1, y: 2, z: 2 } },
         )));
     }
 }
