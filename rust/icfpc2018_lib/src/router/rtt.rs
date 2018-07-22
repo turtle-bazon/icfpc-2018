@@ -32,6 +32,10 @@ pub fn plan_route<VI>(
     -> Option<Vec<Coord>> where
     VI: Iterator<Item = Region> + Clone
 {
+    if volatile.clone().any(|reg| reg.contains(&bot_finish)) || matrix.is_filled(&bot_finish) {
+        return None;
+    }
+
     let mut rng = rand::thread_rng();
     let mut visited_voxels = HashSet::new();
     let mut iters = 0;
