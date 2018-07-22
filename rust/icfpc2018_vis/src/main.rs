@@ -51,6 +51,7 @@ use icfpc2018_lib::{
     },
     cmd::{self, BotCommand},
     router,
+    state::Harmonics,
 };
 use icfpc2018_lib as kernel;
 
@@ -264,7 +265,10 @@ fn run() -> Result<(), Error> {
                     };
 
                     // Draw bounding volume
-                    draw_cube_mesh([0.0, 0.0, 0.0], [dim, dim, dim], [0.0, 0.0, 0.0, 1.0]);
+                    match state.harmonics {
+                      Harmonics::Low  => draw_cube_mesh([0.0, 0.0, 0.0], [dim, dim, dim], [0.0, 0.0, 0.0, 0.25]),
+                      Harmonics::High => draw_cube_mesh([0.0, 0.0, 0.0], [dim, dim, dim], [0.0, 0.0, 0.0, 1.0]),
+                    }
 
                     // Draw model matrix
                     if show_model {
