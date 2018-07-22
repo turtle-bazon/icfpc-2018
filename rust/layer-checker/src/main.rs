@@ -6,7 +6,7 @@ use optimizer::Optimizer;
 
 use clap::Arg;
 use std::fs::File;
-use std::io::{Read,Write};
+use std::io::Write;
 use std::collections::VecDeque;
 use std::iter::DoubleEndedIterator;
 
@@ -19,7 +19,6 @@ enum Error {
     Args(clap::Error),
     Io(std::io::Error),
     ModelReadError(kernel::model::Error),
-    Cmd(kernel::cmd::Error),
 }
 
 
@@ -148,24 +147,72 @@ impl<I> Iterator for Translator<I>
     }
 }
 
+struct Reverser {
+    iter: std::vec::IntoIter<BotCommand>,
+}
+impl Reverser {
+    pub fn new<I: Iterator<Item=BotCommand>>(iter: I) -> Reverser {
+        Reverser {
+            iter: iter.collect::<Vec<_>>().into_iter(),
+        }
+    }
+}
+impl Iterator for Reverser {
+    type Item = BotCommand;
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter.next_back() {
+            None => None,
+            Some(BotCommand::Wait) |
+            Some(BotCommand::Halt) |
+            Some(BotCommand::Flip) |
+            Some(BotCommand::GFill{ .. }) |
+            Some(BotCommand::GVoid{ .. }) |
+            Some(BotCommand::FusionP{ .. }) |
+            Some(BotCommand::FusionS{ .. }) |
+            Some(BotCommand::Fission{ .. }) => unimplemented!(),
+            Some(BotCommand::Fill{ near }) => Some(BotCommand::Void{ near }),
+            Some(BotCommand::Void{ near }) => Some(BotCommand::Fill{ near }),
+            Some(BotCommand::SMove{ long: LinearCoordDiff::Long{ axis, value} }) => Some(BotCommand::SMove{ long: LinearCoordDiff::Long{ axis: axis, value: -value } }),
+            Some(BotCommand::LMove{ short1: LinearCoordDiff::Short { axis: a1, value: v1}, short2: LinearCoordDiff::Short { axis: a2, value: v2} }) => {
+                Some(BotCommand::LMove{ short1: LinearCoordDiff::Short { axis: a2, value: -v2}, short2: LinearCoordDiff::Short { axis: a1, value: -v1} })
+            },
+            _ => unreachable!(),
+        }
+    }
+}
+
 fn main() -> Result<(),Error> {
-    let mut app = app_from_crate!()
+    let app = app_from_crate!()
         .arg(Arg::with_name("original")
              .display_order(1)
              .short("i")
              .long("in")
-             .help("Original trace (In)",)
+             .help("Original model (In)",)
              .takes_value(true))
         .arg(Arg::with_name("optimized")
              .display_order(2)
              .short("o")
              .long("out")
              .help("Optimized trace (Out)")
-             .takes_value(true));
+             .takes_value(true))
+        .arg(Arg::with_name("n")
+             .display_order(3)
+             .short("n")
+             .long("num-bots")
+             .help("bot number")
+             .takes_value(true))
+        .arg(Arg::with_name("reverse")
+             .display_order(4)
+             .short("r")
+             .long("reverse")
+             .help("Reverse"));
 
     let matches = app.get_matches();
     let original = value_t!(matches, "original", String).map_err(Error::Args)?;
     let optimized = value_t!(matches, "optimized", String).map_err(Error::Args)?;
+    let mut bots_count = value_t!(matches, "n", usize).map_err(Error::Args)?;
+    let reverse = matches.is_present("reverse");
 
     
     let matrix = kernel::model::read_model_file(&original).map_err(Error::ModelReadError)?;
@@ -231,8 +278,15 @@ fn main() -> Result<(),Error> {
         println!("{:?} {}",s,ocount[si]);
     }
 
+    if bots_count>stripes.len() {
+        bots_count = stripes.len();
+    }
+    println!("Bots count: {}",bots_count);
     let bot_config = {
-        let mut cnts = vec![0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,];
+        let mut cnts = Vec::with_capacity(bots_count);
+        for _ in 0 .. bots_count {
+            cnts.push(0);
+        }
         let m = cnts.len();
         for (i,_) in stripes.iter().enumerate() {
             cnts[i%m] += 1;
@@ -246,11 +300,6 @@ fn main() -> Result<(),Error> {
         res
     };
     
-    //let bot_config = vec![BotTask{ first: 0, count: 6 }];
-    /*let bot_config = vec![BotTask{ first: 0, count: 2 },
-                          BotTask{ first: 2, count: 1 },
-                          BotTask{ first: 3, count: 1 },
-                          BotTask{ first: 4, count: 2 }];*/
 
     /* create */
     let mut states = Vec::new();
@@ -303,18 +352,9 @@ fn main() -> Result<(),Error> {
         cmds.push(Cmd::XMove(stripes[bot.first].x));
         cmds.push(Cmd::YMove(0));
     }
-    /*for (i,vcmd) in commands.iter().enumerate() {
-        println!("Bot: {}",i);
-        for c in vcmd {
-            println!("{:?}",c);
-        }
-    }*/
 
-    /* spawn creators*/
-    //let max_bots = 39;
-    //if bot_config.len()==1 {
-    //    let mut asc = Translator::new(Coord{x:0,y:0,z:0},vec![Cmd::XMove(stripes[0].x)].into_iter()).collect::<Vec<_>>();
-    //}
+
+    /* spawn */
     let mut max_bots = 39;
     let mut n_bots = 1;
     let mut asc = Vec::new();
@@ -337,31 +377,51 @@ fn main() -> Result<(),Error> {
     asc.push(BotCommand::flip().unwrap());
     
     /* proc */
-    let mut v = VecDeque::new();
-    for _ in bot_config.iter().enumerate() {
-        v.push_front(Optimizer::new(Translator::new(states.pop().unwrap(),commands.pop().unwrap().into_iter())));
-    }
-    loop {
-        let mut cnt = 0;
-        let mut step = Vec::new();
-        for v in &mut v {
-            step.push(match v.next() {
-                None => BotCommand::wait().unwrap(),
-                Some(c) => {
-                    cnt += 1;
-                    c
-                },
-            })
+    if reverse {
+        let mut v = VecDeque::new();
+        for _ in bot_config.iter().enumerate() {
+            v.push_front(Reverser::new(Optimizer::new(Translator::new(states.pop().unwrap(),commands.pop().unwrap().into_iter()))));
         }
-        if cnt==0 { break; }
-        asc.extend(step.into_iter());
+        loop {
+            let mut cnt = 0;
+            let mut step = Vec::new();
+            for v in &mut v {
+                step.push(match v.next() {
+                    None => BotCommand::wait().unwrap(),
+                    Some(c) => {
+                        cnt += 1;
+                        c
+                    },
+                })
+            }
+            if cnt==0 { break; }
+            asc.extend(step.into_iter());
+        }
+    } else {
+        let mut v = VecDeque::new();
+        for _ in bot_config.iter().enumerate() {
+            v.push_front(Optimizer::new(Translator::new(states.pop().unwrap(),commands.pop().unwrap().into_iter())));
+        }
+        loop {
+            let mut cnt = 0;
+            let mut step = Vec::new();
+            for v in &mut v {
+                step.push(match v.next() {
+                    None => BotCommand::wait().unwrap(),
+                    Some(c) => {
+                        cnt += 1;
+                        c
+                    },
+                })
+            }
+            if cnt==0 { break; }
+            asc.extend(step.into_iter());
+        }
     }
-    //asc.extend(Translator::new(states.pop().unwrap(),commands.pop().unwrap().into_iter()));  
 
     /* join */
     asc.push(BotCommand::flip().unwrap());
     for _ in 1 .. n_bots { asc.push(BotCommand::wait().unwrap()); }
-    //asc.extend(Translator::new(Coord{x:stripes[0].x,y:0,z:0},vec![Cmd::XMove(0)].into_iter()));
     let mut n = bot_config.len()-1;
     while n>0 { 
         for c in Translator::new(Coord{x:stripes[bot_config[n].first].x,y:0,z:0},vec![Cmd::XMove(stripes[bot_config[n-1].first].x+1)].into_iter()) {
@@ -381,8 +441,8 @@ fn main() -> Result<(),Error> {
     asc.push(BotCommand::halt().unwrap()); 
 
     let mut cnt = 0;
-    for c in &asc {
-        println!("{:?}",c);
+    for _c in &asc {
+        //println!("{:?}",_c);
         cnt += 1;
     }
     println!("Count: {}",cnt);
@@ -396,70 +456,3 @@ fn main() -> Result<(),Error> {
     Ok(())
 }
 
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    
-    #[test]
-    fn test_opt_moves1() {
-        let mut v = vec![
-            Move{ axis: Axis::X, value: 5 },
-            Move{ axis: Axis::Y, value: 1 },
-            Move{ axis: Axis::X, value: -5 },
-            ];
-        println!("");
-        println!("{:?}",v);
-        optimize_moves(&mut v);
-        println!("{:?}",v);
-        assert_eq!(1,0);
-    }
-
-    #[test]
-    fn test_opt_moves2() {
-        let mut v = vec![
-            Move{ axis: Axis::X, value: -3 },
-            Move{ axis: Axis::Y, value: 1 },
-            Move{ axis: Axis::X, value: 5 },
-            ];
-        println!("");
-        println!("{:?}",v);
-        optimize_moves(&mut v);
-        println!("{:?}",v);
-        assert_eq!(1,0);
-    }
-
-    #[test]
-    fn test_opt_moves3() {
-        let mut v = vec![
-            Move{ axis: Axis::X, value: -6 },
-            Move{ axis: Axis::Y, value: 1 },
-            Move{ axis: Axis::X, value: 5 },
-            ];
-        println!("");
-        println!("{:?}",v);
-        optimize_moves(&mut v);
-        println!("{:?}",v);
-        assert_eq!(1,0);
-    }
-
-    #[test]
-    fn test_opt_moves4() {
-        let mut v = vec![
-            Move { axis: Axis::Z, value: 2 },
-            Move { axis: Axis::X, value: 1 },
-            Move { axis: Axis::Z, value: -7 },
-            Move { axis: Axis::Y, value: 1 },
-            Move { axis: Axis::Z, value: 7 },
-            Move { axis: Axis::X, value: -1 },
-            Move { axis: Axis::Z, value: -2 }
-            ];
-        println!("");
-        println!("{:?}",v);
-        optimize_moves(&mut v);
-        println!("{:?}",v);
-        assert_eq!(1,0);
-    }
-
-
-}
