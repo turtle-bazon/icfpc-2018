@@ -1,4 +1,4 @@
-use rand::{self, Rng};
+use rand::{self};
 
 use super::super::{
     coord::{
@@ -17,9 +17,9 @@ pub enum Error {
 
 }
 
-pub fn solve(source_model: Matrix, target_model: Matrix) -> Result<Vec<BotCommand>, Error> {
-
-    let mut nanobots = Nanobot::init();
+pub fn solve(_source_model: Matrix, _target_model: Matrix) -> Result<Vec<BotCommand>, Error> {
+    let mut _rng = rand::thread_rng();
+    let mut _nanobots = Nanobot::init();
 
 
     unimplemented!()
