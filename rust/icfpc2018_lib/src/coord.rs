@@ -13,7 +13,7 @@ pub type M = isize;
 #[derive(Debug)]
 pub struct Resolution(pub M);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Coord {
     pub x: M,
     pub y: M,
@@ -236,6 +236,12 @@ impl Matrix {
         let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
         self.field.set(offset, true);
         self.filled.insert(coord);
+    }
+
+    pub fn set_void(&mut self, &coord: &Coord) {
+        let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
+        self.field.set(offset, false);
+        self.filled.remove(&coord);
     }
 
     pub fn is_filled(&self, coord: &Coord) -> bool {
