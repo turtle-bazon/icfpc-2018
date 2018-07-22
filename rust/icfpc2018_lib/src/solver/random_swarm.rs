@@ -15,6 +15,8 @@ use super::super::{
     router::rtt,
 };
 
+const INIT_POS: Coord = Coord { x: 0, y: 0, z: 0, };
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Error {
     ModelsDimMismatch { source_dim: usize, target_dim: usize, },
@@ -22,7 +24,7 @@ pub enum Error {
 }
 
 pub struct Config {
-    wandering_rtt_limit: usize,
+    rtt_limit: usize,
 }
 
 pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Result<Vec<BotCommand>, Error> {
@@ -34,30 +36,19 @@ pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Resu
     let env = Env::new(source_model, target_model, config);
     let mut current_model = env.source_model.clone();
     let mut rng = rand::thread_rng();
-    let mut commands_buf = Vec::new();
+    let mut commands_buf: Vec<(Coord, BotCommand)> = Vec::new();
+    let mut script: Vec<BotCommand> = Vec::new();
 
     let (init_bid, init_bot) = Nanobot::init_bot();
-    let (wandering_cmd, wandering_plan) = pick_wandering_target(
-        &init_bot.pos,
-        &env,
-        &current_model,
-        None.into_iter(),
-        &mut commands_buf,
-        &mut rng,
-    )?;
-    let init_plan = Plan::Wandering(wandering_plan);
     let mut nanobots = vec![
         Nanobot {
             bid: init_bid,
             bot: init_bot,
-            plan: init_plan,
-            cmd: wandering_cmd,
+            plan: Plan::Init,
         },
     ];
 
-    let mut script = Vec::new();
     let mut work_complete = false;
-
     loop {
         // check for stop condition
         if work_complete || current_model.equals(&env.target_model) {
@@ -67,16 +58,107 @@ pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Resu
             }
         }
 
-        let mut next_nanobots: Vec<Nanobot> =
-            Vec::with_capacity(nanobots.len());
-        for nanobot in nanobots.iter() {
-            let next_nanobots_iter =
-                nanobot.implement_plan(&env, &current_model, None.into_iter(), &mut commands_buf, &mut rng)?;
-            next_nanobots.extend(next_nanobots_iter);
-        }
-        let nanobots = next_nanobots;
 
-        unimplemented!()
+
+
+    //         // one nanobot left and it is ready for halt
+    //         if nanobots.len() == 1 && nanobots[0].0.bot.pos == init_bot_pos {
+    //             nanobots[0].0.plan = Plan::Perish;
+    //             nanobots[0].1 = BotCommand::Halt;
+    //         } else {
+    //             // find master nanobot
+    //             let master_index = nanobots.iter()
+    //                 .map(|p| &p.0)
+    //                 .enumerate()
+    //                 .min_by_key(|(_, ref nanobot)| nanobot.bot.pos.diff(&init_bot_pos).l_1_norm())
+    //                 .map(|(index, _)| index)
+    //                 .unwrap_or(0);
+    //             if nanobots[master_index].0.bot.pos == init_bot_pos {
+    //                 // master is ready for fusion
+
+
+    //             } else {
+    //                 // master is on the way to start position
+    //                 nanobots[master_index].0.plan = Plan::MasterReturnToBase {
+    //                     base: init_bot_pos,
+    //                 };
+
+    //             }
+
+
+
+    //             // find slave nanobot
+    //             let maybe_slave_index = {
+    //                 if nanobots[master_index].0.bot.pos == init_bot_pos {
+    //                     nanobots[master_index].1 = BotCommand::Wait;
+    //                     nanobots.iter()
+    //                         .position(|p| init_bot_pos.diff(&p.0.bot.pos).is_near());
+    //                 } else {
+
+
+    //                     nanobots[master_index].1 = BotCommand::Wait;
+    //                     None
+    //                 }
+    //             };
+    //             // fusion if able to
+    //             if let Some(slave_index) = maybe_slave_index {
+    //                 nanobots[master_index].1 = BotCommand::FusionP {
+    //                     near: init_bot_pos.diff(&nanobots[slave_index].0.bot.pos),
+    //                 };
+    //                 nanobots[slave_index].0.plan = Plan::Perish;
+    //                 nanobots[slave_index].1 = BotCommand::FusionS {
+    //                     near: nanobots[slave_index].0.bot.pos.diff(&init_bot_pos),
+    //                 };
+    //             }
+    //         }
+    //     }
+
+    //     let mut next_nanobots =
+    //         Vec::with_capacity(nanobots.len());
+    //     for (mut nanobot, performing_cmd) in nanobots {
+    //         // interpret command
+    //         match performing_cmd {
+    //             BotCommand::Halt |
+    //             BotCommand::Wait |
+    //             BotCommand::Flip |
+    //             BotCommand::Fission { .. } |
+    //             BotCommand::FusionP{ .. } |
+    //             BotCommand::FusionS{ .. } |
+    //             BotCommand::GFill { .. } |
+    //             BotCommand::GVoid { .. } =>
+    //                 (),
+    //             BotCommand::SMove { ref long } => {
+    //                 let move_diff = long.to_coord_diff();
+    //                 let move_coord = nanobot.bot.pos.add(move_diff);
+    //                 nanobot.bot.pos = move_coord;
+    //             },
+    //             BotCommand::LMove { ref short1, ref short2, } => {
+    //                 let move_diff = short1.to_coord_diff();
+    //                 let move_coord = nanobot.bot.pos.add(move_diff);
+    //                 let move_diff = short2.to_coord_diff();
+    //                 let move_coord = move_coord.add(move_diff);
+    //                 nanobot.bot.pos = move_coord;
+    //             },
+    //             BotCommand::Fill { near, } => {
+    //                 let fill_coord = nanobot.bot.pos.add(near);
+    //                 current_model.set_filled(&fill_coord);
+    //             },
+    //             BotCommand::Void{ near, } => {
+    //                 let void_coord = nanobot.bot.pos.add(near);
+    //                 current_model.set_void(&void_coord);
+    //             },
+    //         }
+
+    //         // record the script
+    //         script.push(performing_cmd);
+
+    //         // implement nanobot plan
+    //         let next_nanobots_iter =
+    //             nanobot.implement_plan(&env, &current_model, None.into_iter(), &mut commands_buf, &mut rng)?;
+    //         next_nanobots.extend(next_nanobots_iter);
+    //     }
+    //     nanobots = next_nanobots;
+    //     nanobots.sort_by_key(|&(ref bot, _)| bot.bid);
     }
 }
 
@@ -107,74 +189,141 @@ struct Nanobot {
     bid: Bid,
     bot: Bot,
     plan: Plan,
-    cmd: BotCommand,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Plan {
-    Wandering(Wandering),
+    Init,
+    HeadingFor { target: Coord, attempts: usize, },
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum WorkState {
+    InProgress,
+    Completed {
+        nanobots_left: usize,
+        slave_pick: Option<Coord>,
+    },
+}
+
+enum PlanResult {
+    DoAndPerish(BotCommand),
+    Regular { nanobot: Nanobot, cmd: BotCommand, },
+    Spawn { parent: Nanobot, child: Nanobot, cmd: BotCommand, },
+    Error(Error),
 }
 
 impl Nanobot {
     fn init_bot() -> (Bid, Bot) {
         (1, Bot {
-            pos: Coord {
-                x: 0,
-                y: 0,
-                z: 0,
-            },
+            pos: INIT_POS,
             seeds: (2 ..= 40).collect(),
         })
     }
 
     fn implement_plan<R, VI>(
-        &self,
+        mut self,
         env: &Env,
         current_model: &Matrix,
+        work_state: WorkState,
         volatiles: VI,
         commands_buf: &mut Vec<(Coord, BotCommand)>,
         rng: &mut R,
     )
-        -> Result<impl Iterator<Item = Nanobot>, Error> where
+        -> PlanResult where
         R: Rng,
         VI: Iterator<Item = Region> + Clone,
     {
-        Ok(match self.plan {
-            Plan::Wandering(Wandering { ref target, }) if target == &self.bot.pos => {
-                // reached a wandering target
-                unimplemented!()
-            },
-            Plan::Wandering(Wandering { target, }) => {
-                // still moving to target
-                if let Some(wandering_cmd) =
-                    route_and_step(&self.bot.pos, &target, current_model, volatiles.clone(), commands_buf, env.config.wandering_rtt_limit)?
-                {
-                    // can continue moving
-                    Some(Nanobot {
-                        bid: self.bid,
-                        bot: self.bot.clone(),
-                        plan: Plan::Wandering(Wandering { target, }),
-                        cmd: wandering_cmd,
-                    })
+        match work_state {
+            WorkState::InProgress =>
+                (),
+            WorkState::Completed { nanobots_left, slave_pick, } =>
+                if self.bot.pos == INIT_POS {
+                    // i am the master
+                    return if nanobots_left == 1 {
+                        PlanResult::DoAndPerish(BotCommand::Halt)
+                    } else if let Some(slave_coord) = slave_pick {
+                        let fusion_cmd = BotCommand::FusionP {
+                            near: self.bot.pos.diff(&slave_coord),
+                        };
+                        PlanResult::Regular { nanobot: self, cmd: fusion_cmd, }
+                    } else {
+                        PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
+                    };
                 } else {
-                    // can not move there yet, pick another wandering target
-                    let (wandering_cmd, wandering_plan) = pick_wandering_target(
-                        &self.bot.pos,
-                        env,
-                        current_model,
-                        volatiles.clone(),
-                        commands_buf,
-                        rng,
-                    )?;
-                    Some(Nanobot {
-                        bid: self.bid,
-                        bot: self.bot.clone(),
-                        plan: Plan::Wandering(wandering_plan),
-                        cmd: wandering_cmd,
-                    })
-                }.into_iter().chain(None.into_iter())
-            },
-        })
+                    match slave_pick {
+                        Some(coord) if coord == self.bot.pos =>
+                            return PlanResult::DoAndPerish(BotCommand::FusionS {
+                                near: self.bot.pos.diff(&INIT_POS),
+                            }),
+                        _ =>
+                            self.plan = Plan::HeadingFor { target: INIT_POS, attempts: 0, },
+                    };
+                },
+        }
+        loop {
+            match self.plan {
+                Plan::Init => {
+                    // go somewhere
+                    let target = pick_random_coord(current_model.dim() as isize, rng);
+                    self.plan = Plan::HeadingFor { target, attempts: 0, };
+                },
+                Plan::HeadingFor { ref target, .. } if target == &self.bot.pos => {
+                    // reached a target
+                    unimplemented!()
+                },
+                Plan::HeadingFor { target, attempts, } => {
+                    // still moving to target
+                    let route_result =
+                        route_and_step(&self.bot.pos, &target, current_model, volatiles.clone(), commands_buf, env.config.rtt_limit);
+                    match route_result {
+                        Ok(Some(moving_cmd)) => {
+                            // can continue moving
+                            return PlanResult::Regular { nanobot: self, cmd: moving_cmd, };
+                        },
+                        Ok(None) => {
+                            // can not move there
+                            match work_state {
+                                WorkState::InProgress => {
+                                    // pick another wandering target
+                                    let pick_result = pick_wandering_target(
+                                        &self.bot.pos,
+                                        env,
+                                        current_model,
+                                        volatiles.clone(),
+                                        commands_buf,
+                                        rng,
+                                    );
+                                    match pick_result {
+                                        Ok((wandering_cmd, wandering_coord)) => {
+                                            self.plan = Plan::HeadingFor { target: wandering_coord, attempts: 0, };
+                                        },
+                                        Err(error) =>
+                                            return PlanResult::Error(error),
+                                    }
+                                },
+                                WorkState::Completed { .. } => {
+                                    // try to find a free position nearby
+                                    let next_attempts = attempts + 1;
+                                    let offset = (next_attempts / 3) as isize;
+                                    let axis = next_attempts % 3;
+                                    self.plan = Plan::HeadingFor {
+                                        target: Coord {
+                                            x: target.x + if axis == 0 { offset } else { 0 },
+                                            y: target.y + if axis == 1 { offset } else { 0 },
+                                            z: target.z + if axis == 2 { offset } else { 0 },
+                                        },
+                                        attempts: next_attempts,
+                                    };
+                                },
+                            }
+                        },
+                        Err(error) =>
+                            return PlanResult::Error(error),
+                    }
+                },
+            }
+        }
     }
 }
 
@@ -186,11 +335,6 @@ fn pick_random_coord<R>(dim: isize, rng: &mut R) -> Coord where R: Rng {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-struct Wandering {
-    target: Coord,
-}
-
 fn pick_wandering_target<R, VI>(
     bot_pos: &Coord,
     env: &Env,
@@ -199,7 +343,7 @@ fn pick_wandering_target<R, VI>(
     commands_buf: &mut Vec<(Coord, BotCommand)>,
     rng: &mut R,
 )
-    -> Result<(BotCommand, Wandering), Error> where
+    -> Result<(BotCommand, Coord), Error> where
     R: Rng,
     VI: Iterator<Item = Region> + Clone,
 {
@@ -207,9 +351,9 @@ fn pick_wandering_target<R, VI>(
     loop {
         let target = pick_random_coord(dim, rng);
         if let Some(move_command) =
-            route_and_step(bot_pos, &target, current_model, volatiles.clone(), commands_buf, env.config.wandering_rtt_limit)?
+            route_and_step(bot_pos, &target, current_model, volatiles.clone(), commands_buf, env.config.rtt_limit)?
         {
-            return Ok((move_command, Wandering { target, }));
+            return Ok((move_command, target));
         }
     }
 }
@@ -248,8 +392,13 @@ fn route_and_step<VI>(
 #[cfg(test)]
 mod test {
     use super::super::super::{
-        coord::Coord,
+        coord::{
+            Coord,
+            Matrix,
+            Resolution,
+        },
         state::Bot,
+        cmd::BotCommand,
     };
     use super::{
         Nanobot,
@@ -275,4 +424,13 @@ mod test {
         );
     }
 
+    #[test]
+    fn solve_empty() {
+        let source_model = Matrix::from_iter(Resolution(3), vec![]);
+        let target_model = Matrix::from_iter(Resolution(3), vec![]);
+        // let script = super::solve(source_model, target_model, super::Config {
+        //     wandering_rtt_limit: 16,
+        // }).unwrap();
+        // assert_eq!(script, vec![BotCommand::Halt]);
+    }
 }
