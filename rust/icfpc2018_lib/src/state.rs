@@ -110,6 +110,10 @@ impl State {
         self.bots.get(bid).map(|bot| bot.pos)
     }
 
+    pub fn is_halt(&self) -> bool {
+        self.bots.is_empty()
+    }
+
     pub fn check_precondition(&self, bid: &Bid, cmd: &BotCommand) -> Result<HashSet<Coord>, Error> {
         if let None = self.bots.get(bid) {
             return Err(Error::InvalidBid{bid:*bid})
@@ -358,7 +362,10 @@ impl State {
         res
     }
 
-    pub fn step_mut(&mut self, commands: &mut Vec<BotCommand>) -> Result<(), Error> {
+
+    pub fn step_mut<T>(&mut self, cmd_iter: &mut T) -> Result<(), Error>
+        where T : Iterator<Item = BotCommand> {
+
         /* check the state is well-formed */
         let wf = self.wellformed();
         if WellformedStatus::Wellformed != wf {
@@ -367,26 +374,30 @@ impl State {
 
         /* check there are enough commands */
         let bids: Vec<Bid> = self.bots.keys().cloned().collect();
-        if commands.len() < bids.len() {
-            return Err(Error::NotEnoughCommands);
-        }
-
-        let commands_to_execute : Vec<BotCommand> = commands.drain(0..bids.len()).collect();
+        let cmds: Vec<BotCommand> = cmd_iter.take(bids.len()).collect();
 
         /* check command preconditions & end commands interference */
         let mut volatile: HashSet<Coord> = HashSet::new();
-        for (bid, cmd) in bids.iter().zip(commands_to_execute.iter()) {
-            let res = self.check_precondition(bid, &cmd);
-            match res {
-                Ok(cmd_volatile) => {
-                    if volatile.intersection(&cmd_volatile).next() != None {
-                        return Err(Error::CommandsInterfere)
-                    }
-                    for c in cmd_volatile {
-                        volatile.insert(c);
+        let mut bid_iter = bids.iter();
+        let mut cmd_iter = cmds.iter();
+        loop {
+            match (bid_iter.next(), cmd_iter.next()) {
+                (Some(bid), Some(cmd)) => {
+                    let res = self.check_precondition(bid, &cmd);
+                    match res {
+                        Ok(cmd_volatile) => {
+                            if volatile.intersection(&cmd_volatile).next() != None {
+                                return Err(Error::CommandsInterfere)
+                            }
+                            for c in cmd_volatile {
+                                volatile.insert(c);
+                            }
+                        },
+                        Err(e) => return Err(e),
                     }
                 },
-                Err(e) => return Err(e),
+                (Some(_), None) => { return Err(Error::NotEnoughCommands); }
+                (None, _) => { break; }
             }
         }
 
@@ -401,28 +412,33 @@ impl State {
         // energy for each nanobot
         self.energy += 20 * self.bots.len();
 
-        for (bid, cmd) in bids.iter().zip(commands_to_execute.iter()) {
-            self.perform_mut(bid, &cmd);
+        let mut bid_iter = bids.iter();
+        let mut cmd_iter = cmds.iter();
+        loop {
+            match (bid_iter.next(), cmd_iter.next()) {
+                (Some(bid), Some(cmd)) => {
+                    self.perform_mut(bid, &cmd);
+                },
+                (Some(_), None) => { return Err(Error::NotEnoughCommands); }
+                (None, _) => { break; }
+            }
         }
         Ok(())
     }
 
-    pub fn run_mut(&mut self, mut commands: Vec<BotCommand>) -> Result<(), Error> {
-        // let mut step_counter = 0;
+    pub fn run_mut(&mut self, commands: Vec<BotCommand>) -> Result<(), Error> {
+        let mut cmd_iter = commands.into_iter();
         loop {
             self.steps += 1;
-            let res = self.step_mut(&mut commands);
+            let res = self.step_mut(&mut cmd_iter);
             match res {
                 Err(e) => {
-                    // println!("ERROR: {:?}", e);
-                    // assert!(false);
                     return Err(e);
                 },
                 Ok(_) => ()
             }
 
-            if commands.is_empty() {
-                // println!("ENERGY {} Steps {} ", state.energy, step_counter);
+            if self.is_halt() {
                 return Ok(())
             }
         }
@@ -727,13 +743,12 @@ mod test {
             BotCommand::flip().unwrap(),
             BotCommand::halt().unwrap(),
             ];
-        state.step_mut(&mut trace).unwrap();
-        state.step_mut(&mut trace).unwrap();
-        state.step_mut(&mut trace).unwrap();
-        state.step_mut(&mut trace).unwrap();
-        state.step_mut(&mut trace).unwrap();
-        // println!("Energy: {}", state.energy);
-        // assert!(false);
+        let mut trace_it = trace.into_iter();
+        state.step_mut(&mut trace_it).unwrap();
+        state.step_mut(&mut trace_it).unwrap();
+        state.step_mut(&mut trace_it).unwrap();
+        state.step_mut(&mut trace_it).unwrap();
+        state.step_mut(&mut trace_it).unwrap();
     }
 
     use super::super::junk::FA001_TGT_MDL;
