@@ -66,7 +66,7 @@ impl State {
 
         bots.insert(1, Bot {
             pos: Coord { x:0, y:0, z:0 },
-            seeds: (2..21).collect(),
+            seeds: (2..41).collect(),
         });
 
         State {
@@ -181,10 +181,18 @@ impl State {
 
                 volatile.insert(cf);
             },
+            BotCommand::Void{ near } => {
+                let n = *near;
+                let cf = c.add(n);
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+
+                volatile.insert(cf);
+            },
             BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
             BotCommand::FusionP{ near: _ } => unimplemented!(),
             BotCommand::FusionS{ near: _ } => unimplemented!(),
-            BotCommand::Void{ near: _ } => unimplemented!(),
             BotCommand::GFill{ near: _, far: _ } => unimplemented!(),
             BotCommand::GVoid{ near: _, far: _ } => unimplemented!(),
         }
@@ -238,10 +246,21 @@ impl State {
                     self.energy += 6;
                 }
             },
+            BotCommand::Void{ near } => {
+                let n = *near;
+                let cf = c.add(n);
+
+                if self.matrix.is_filled(&cf) {
+                    self.matrix.set_void(&cf);
+                    self.energy -= 12;
+                }
+                else {
+                    self.energy += 3;
+                }
+            }
             BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
             BotCommand::FusionP{ near: _ } => unimplemented!(),
             BotCommand::FusionS{ near: _ } => unimplemented!(),
-            BotCommand::Void{ near: _ } => unimplemented!(),
             BotCommand::GFill{ near: _, far: _ } => unimplemented!(),
             BotCommand::GVoid{ near: _, far: _ } => unimplemented!(),
         }
@@ -336,7 +355,8 @@ mod test {
         assert_eq!(st.bots.len(), 1);
         let bot = st.bots.get(&1).unwrap();
         assert_eq!(bot.pos, Coord { x:0, y:0, z:0 });
-        assert_eq!(bot.seeds, vec![2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]);
+        let seeds : Vec<Bid> = (2..41).collect();
+        assert_eq!(bot.seeds, seeds);
     }
 
     #[test]
@@ -454,6 +474,45 @@ mod test {
         let mut state = State::new(matrix, vec![]);
         let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
         let res = state.do_cmd_mut(&1, &BotCommand::fill(df).unwrap());
+        assert!(res.is_err());
+        assert_eq!(res, Err(Error::MoveOutOfBounds{c: Coord {x:1, y:0, z:0}}));
+    }
+
+    #[test]
+    fn do_cmd_void() {
+        let matrix = Matrix::new(Resolution(4));
+        let mut state = State::new(matrix, vec![]);
+
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        /* Intentional BotCommand::fill !!! */
+        state.do_cmd_mut(&1, &BotCommand::fill(df).unwrap()).unwrap();
+
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        let res = state.do_cmd_mut(&1, &BotCommand::void(df).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.energy, 0);
+        assert!(!state.matrix.is_filled(&Coord { x:1, y:0, z:0 }));
+        let exp : HashSet<Coord> = [
+            Coord { x: 0, y:0, z: 0, },
+            Coord { x: 1, y:0, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        let res = state.do_cmd_mut(&1, &BotCommand::void(df).unwrap());
+        assert!(res.is_ok());
+        assert_eq!(state.energy, 3);
+        assert!(!state.matrix.is_filled(&Coord { x:1, y:0, z:0 }));
+        let exp : HashSet<Coord> = [
+            Coord { x: 0, y:0, z: 0, },
+            Coord { x: 1, y:0, z: 0, },
+            ].iter().cloned().collect();
+        assert_eq!(res.unwrap(), exp);
+
+        let matrix = Matrix::new(Resolution(1));
+        let mut state = State::new(matrix, vec![]);
+        let df = CoordDiff{0: Coord { x:1, y:0, z:0 }};
+        let res = state.do_cmd_mut(&1, &BotCommand::void(df).unwrap());
         assert!(res.is_err());
         assert_eq!(res, Err(Error::MoveOutOfBounds{c: Coord {x:1, y:0, z:0}}));
     }

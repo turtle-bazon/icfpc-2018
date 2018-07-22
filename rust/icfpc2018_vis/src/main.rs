@@ -46,7 +46,6 @@ use icfpc2018_lib::{
     coord::{
         Coord,
         Matrix,
-        Region,
         Resolution,
     },
     cmd::{self, BotCommand},
@@ -209,11 +208,10 @@ fn run() -> Result<(), Error> {
 
                     // Draw last route
                     if let Some(route) = last_route.as_ref() {
-                        for i in 1 .. route.len() {
-                            let reg = Region::from_corners(&route[i - 1], &route[i]);
+                        for mark in route.iter() {
                             voxel_renderer.draw_voxel(
-                                [reg.min.x as f32 + 0.4, reg.min.y as f32 + 0.4, reg.min.z as f32 + 0.4],
-                                [reg.max.x as f32 + 0.6, reg.max.y as f32 + 0.6, reg.max.z as f32 + 0.6],
+                                [mark.x as f32 + 0.3, mark.y as f32 + 0.3, mark.z as f32 + 0.3],
+                                [mark.x as f32 + 0.7, mark.y as f32 + 0.7, mark.z as f32 + 0.7],
                                 [0.0, 0.5, 0.0, 1.0],
                             );
                         }
@@ -359,16 +357,21 @@ fn run() -> Result<(), Error> {
                 match cursor_state {
                     CursorState::Moving =>
                         if !filled_matrix.is_filled(&cursor) {
-                            let maybe_route = router::plan_route(
+                            let maybe_route = router::rtt::plan_route(
                                 &nanobot,
                                 &cursor,
                                 &filled_matrix,
                                 None.into_iter(),
+                                matrix.dim() * matrix.dim() * matrix.dim(),
                             );
-                            if let Some((route, _)) = maybe_route {
-                                last_route = Some(route.iter().map(|mv| mv.coord).collect());
-                                script.extend(route.into_iter().flat_map(|mv| mv.cmd_performed));
-                                nanobot = cursor;
+                            if let Some(route) = maybe_route {
+                                let mut script_route = Vec::new();
+                                router::rtt::plan_route_commands(&route, &mut script_route);
+                                if !script_route.is_empty() {
+                                    last_route = Some(script_route.iter().map(|mv| mv.0).collect());
+                                    script.extend(script_route.into_iter().map(|mv| mv.1));
+                                    nanobot = cursor;
+                                }
                             }
                         },
                     CursorState::Filling =>
@@ -391,52 +394,6 @@ fn run() -> Result<(), Error> {
                         }
                         filled_matrix.set_filled(&coord);
                         script.push(BotCommand::fill(nanobot.diff(&coord)).unwrap());
-                    }
-                },
-            Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::L), state: ButtonState::Release, .. })) =>
-                if let CursorState::Filling = cursor_state {
-                    let diff = cursor.diff(&nanobot);
-                    loop {
-                        let mut success = false;
-                        for coord in nanobot.get_neighbours() {
-                            if coord.y >= nanobot.y {
-                                continue;
-                            }
-                            if filled_matrix.is_filled(&coord) {
-                                continue;
-                            }
-                            if !matrix.is_filled(&coord) {
-                                continue;
-                            }
-                            filled_matrix.set_filled(&coord);
-                            script.push(BotCommand::fill(nanobot.diff(&coord)).unwrap());
-                            success = true;
-                        }
-                        if !success {
-                            break;
-                        }
-                        if !filled_matrix.is_filled(&cursor) {
-                            let maybe_route = router::plan_route(
-                                &nanobot,
-                                &cursor,
-                                &filled_matrix,
-                                None.into_iter(),
-                            );
-                            if let Some((route, _)) = maybe_route {
-                                last_route = Some(route.iter().map(|mv| mv.coord).collect());
-                                script.extend(route.into_iter().flat_map(|mv| mv.cmd_performed));
-                                nanobot = cursor;
-                            } else {
-                                break;
-                            }
-                        }
-                        let next = cursor.add(diff);
-                        let dim = matrix.dim() as isize;
-                        if next.x >= 0 && next.x < dim && next.y >= 0 && next.y < dim && next.z >= 0 && next.z < dim {
-                            cursor = next;
-                        } else {
-                            break;
-                        }
                     }
                 },
             Event::Input(Input::Button(ButtonArgs { button: Button::Keyboard(Key::H), state: ButtonState::Release, .. })) =>
