@@ -138,10 +138,12 @@ fn run() -> Result<(), Error> {
         aspect_ratio: (SCREEN_WIDTH as f32) / (SCREEN_HEIGHT as f32)
     }.projection();
 
+    let center_point_value = (matrix.dim() / 2) as f32;
     let mut orbit_zoom_camera: OrbitZoomCamera<f32> = OrbitZoomCamera::new(
-        [10.0, 10.0, 20.0],
+        [center_point_value, center_point_value, center_point_value],
         OrbitZoomCameraSettings::default()
     );
+    orbit_zoom_camera.distance = (matrix.dim() * 5 / 4) as f32;
 
     enum CursorState {
         Moving,
@@ -200,7 +202,7 @@ fn run() -> Result<(), Error> {
                     let dim = matrix.dim() as f32;
 
                     // Draw floor
-                    voxel_renderer.draw_voxel([0.0, 0.0, 0.0], [dim, -1.0, dim], [0.33, 0.33, 0.33, 1.0]);
+                    //voxel_renderer.draw_voxel([0.0, 0.0, 0.0], [dim, -0.5, dim], [0.33, 0.33, 0.33, 0.5]);
                     for i in 0 .. matrix.dim() {
                         debug_renderer.draw_line([i as f32, 0.0, 0.0], [i as f32, 0.0, dim], [0.0, 0.0, 0.0, 1.0]);
                         debug_renderer.draw_line([0.0, 0.0, i as f32], [dim, 0.0, i as f32], [0.0, 0.0, 0.0, 1.0]);
