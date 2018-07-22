@@ -140,7 +140,7 @@ fn run() -> Result<(), Error> {
 
     let center_point_value = (matrix.dim() / 2) as f32;
     let mut orbit_zoom_camera: OrbitZoomCamera<f32> = OrbitZoomCamera::new(
-        [center_point_value, center_point_value, center_point_value],
+        [center_point_value, center_point_value, -center_point_value],
         OrbitZoomCameraSettings::default()
     );
     orbit_zoom_camera.distance = (matrix.dim() * 5 / 4) as f32;
@@ -192,11 +192,11 @@ fn run() -> Result<(), Error> {
                 // Draw axes
                 debug_renderer.draw_line([0.0, 0.0, 0.0], [5.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
                 debug_renderer.draw_line([0.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 1.0, 0.0, 1.0]);
-                debug_renderer.draw_line([0.0, 0.0, 0.0], [0.0, 0.0, 5.0], [0.0, 0.0, 1.0, 1.0]);
+                debug_renderer.draw_line([0.0, 0.0, 0.0], [0.0, 0.0, -5.0], [0.0, 0.0, 1.0, 1.0]);
 
                 debug_renderer.draw_text_at_position("X", [6.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
                 debug_renderer.draw_text_at_position("Y", [0.0, 6.0, 0.0], [0.0, 1.0, 0.0, 1.0]);
-                debug_renderer.draw_text_at_position("Z", [0.0, 0.0, 6.0], [0.0, 0.0, 1.0, 1.0]);
+                debug_renderer.draw_text_at_position("Z", [0.0, 0.0, -6.0], [0.0, 0.0, 1.0, 1.0]);
 
                 {
                     let dim = matrix.dim() as f32;
@@ -204,8 +204,8 @@ fn run() -> Result<(), Error> {
                     // Draw floor
                     //voxel_renderer.draw_voxel([0.0, 0.0, 0.0], [dim, -0.5, dim], [0.33, 0.33, 0.33, 0.5]);
                     for i in 0 .. matrix.dim() {
-                        debug_renderer.draw_line([i as f32, 0.0, 0.0], [i as f32, 0.0, dim], [0.0, 0.0, 0.0, 1.0]);
-                        debug_renderer.draw_line([0.0, 0.0, i as f32], [dim, 0.0, i as f32], [0.0, 0.0, 0.0, 1.0]);
+                        debug_renderer.draw_line([i as f32, 0.0, 0.0], [i as f32, 0.0, -dim], [0.0, 0.0, 0.0, 1.0]);
+                        debug_renderer.draw_line([0.0, 0.0, - (i as f32)], [dim, 0.0, -(i as f32)], [0.0, 0.0, 0.0, 1.0]);
                     }
 
                     // Draw last route
@@ -221,20 +221,20 @@ fn run() -> Result<(), Error> {
 
                     let mut draw_cube_mesh = |min: [f32; 3], max: [f32; 3], color| {
                         // front
-                        debug_renderer.draw_line([min[0], min[1], min[2]], [max[0], min[1], min[2]], color);
-                        debug_renderer.draw_line([max[0], min[1], min[2]], [max[0], max[1], min[2]], color);
-                        debug_renderer.draw_line([max[0], max[1], min[2]], [min[0], max[1], min[2]], color);
-                        debug_renderer.draw_line([min[0], max[1], min[2]], [min[0], min[1], min[2]], color);
+                        debug_renderer.draw_line([min[0], min[1], -min[2]], [max[0], min[1], -min[2]], color);
+                        debug_renderer.draw_line([max[0], min[1], -min[2]], [max[0], max[1], -min[2]], color);
+                        debug_renderer.draw_line([max[0], max[1], -min[2]], [min[0], max[1], -min[2]], color);
+                        debug_renderer.draw_line([min[0], max[1], -min[2]], [min[0], min[1], -min[2]], color);
                         // back
-                        debug_renderer.draw_line([min[0], min[1], max[2]], [max[0], min[1], max[2]], color);
-                        debug_renderer.draw_line([max[0], min[1], max[2]], [max[0], max[1], max[2]], color);
-                        debug_renderer.draw_line([max[0], max[1], max[2]], [min[0], max[1], max[2]], color);
-                        debug_renderer.draw_line([min[0], max[1], max[2]], [min[0], min[1], max[2]], color);
+                        debug_renderer.draw_line([min[0], min[1], -max[2]], [max[0], min[1], -max[2]], color);
+                        debug_renderer.draw_line([max[0], min[1], -max[2]], [max[0], max[1], -max[2]], color);
+                        debug_renderer.draw_line([max[0], max[1], -max[2]], [min[0], max[1], -max[2]], color);
+                        debug_renderer.draw_line([min[0], max[1], -max[2]], [min[0], min[1], -max[2]], color);
                         // missing edges
-                        debug_renderer.draw_line([min[0], min[1], min[2]], [min[0], min[1], max[2]], color);
-                        debug_renderer.draw_line([max[0], min[1], min[2]], [max[0], min[1], max[2]], color);
-                        debug_renderer.draw_line([max[0], max[1], min[2]], [max[0], max[1], max[2]], color);
-                        debug_renderer.draw_line([min[0], max[1], min[2]], [min[0], max[1], max[2]], color);
+                        debug_renderer.draw_line([min[0], min[1], -min[2]], [min[0], min[1], -max[2]], color);
+                        debug_renderer.draw_line([max[0], min[1], -min[2]], [max[0], min[1], -max[2]], color);
+                        debug_renderer.draw_line([max[0], max[1], -min[2]], [max[0], max[1], -max[2]], color);
+                        debug_renderer.draw_line([min[0], max[1], -min[2]], [min[0], max[1], -max[2]], color);
                     };
 
                     // Draw bounding volume
