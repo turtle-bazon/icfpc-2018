@@ -55,6 +55,7 @@ pub enum RegionDim {
     Box,
 }
 
+#[derive(Clone)]
 pub struct Matrix {
     dim: usize,
     field: BitVec,
