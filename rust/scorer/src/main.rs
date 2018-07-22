@@ -3,12 +3,9 @@ extern crate icfpc2018_lib;
 
 use clap::Arg;
 use std::fs::File;
-use std::io::{Read,Write};
-use std::collections::VecDeque;
+use std::io::Read;
 
 use icfpc2018_lib as kernel;
-use kernel::cmd::BotCommand;
-use kernel::coord::{LinearCoordDiff,Axis,M,Coord,CoordDiff};
 
 #[derive(Debug)]
 enum Error {
@@ -22,7 +19,7 @@ enum Error {
 
 
 fn main() -> Result<(),Error> {
-    let mut app = app_from_crate!()
+    let app = app_from_crate!()
         .arg(Arg::with_name("model")
              .display_order(1)
              .short("m")
@@ -42,36 +39,34 @@ fn main() -> Result<(),Error> {
     let model_filename = value_t!(matches, "model", String).map_err(Error::Args)?;
     let trace_filename = value_t!(matches, "trace", String).map_err(Error::Args)?;
 
-    let ref_model = kernel::model::read_model_file(model_filename).unwrap();
+    let ref_model = match kernel::model::read_model_file(model_filename) {
+        Err(e) => return Err(Error::ModelReadError(e)),
+        Ok(m) => m,
+    };
 
     let mut f = File::open(&trace_filename).map_err(Error::Io)?;
     let mut buffer = Vec::new();
     f.read_to_end(&mut buffer).map_err(Error::Io)?;
-    let mut cmds = kernel::cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
 
-
-    let mut matrix = kernel::coord::Matrix::new(kernel::coord::Resolution(ref_model.dim() as isize));
+    let matrix = ref_model.new_empty_of_same_size();
     let mut state = kernel::state::State::new(matrix, vec![]);
-    let mut step_counter = 0;
-    loop {
-        step_counter += 1;
-        let res = state.step_mut(&mut cmds);
-        match res {
-            Err(e) => {
-                println!("ERROR: {:?}", e);
-                return Err(Error::State(e));
-            },
-            Ok(e) => {}
-        }
 
-        if cmds.is_empty() {
-            println!("ENERGY {} Steps {} ", state.energy, step_counter);
-            return Ok(())
+    let cmds = kernel::cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
+    println!("Commands: {}", cmds.len());
+
+    let res = state.run_mut(cmds);
+    println!("Steps: {} ", state.steps);
+    println!("ENERGY: {}", state.energy);
+    match res {
+        Err(e) => {
+            println!("ERROR: {:?}", e);
+            Err(Error::State(e))
+        },
+        Ok(_) => {
+            println!("SUCCESS");
+            Ok(())
         }
     }
-
-    // TODO: Check ref_model and model correspondance by-voxel
-
 }
 
 
