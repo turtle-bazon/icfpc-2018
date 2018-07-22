@@ -55,18 +55,18 @@ pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Resu
         },
     ];
 
-    // loop {
-    //     let next_nanobots: Vec<Nanobot> =
-    //         Vec::with_capacity(nanobots.len());
-    //     for nanobot in nanobots.iter() {
-    //         // bot.implement_plan(&env, &current_model, &config, &mut rng);
-    //     }
-    //     let nanobots = next_nanobots;
+    loop {
+        let mut next_nanobots: Vec<Nanobot> =
+            Vec::with_capacity(nanobots.len());
+        for nanobot in nanobots.iter() {
+            let next_nanobots_iter =
+                nanobot.implement_plan(&env, &current_model, None.into_iter(), &mut commands_buf, &mut rng)?;
+            next_nanobots.extend(next_nanobots_iter);
+        }
+        let nanobots = next_nanobots;
 
-    //     unimplemented!()
-    // }
-
-    unimplemented!()
+        unimplemented!()
+    }
 }
 
 struct Env {
@@ -114,6 +114,21 @@ impl Nanobot {
             },
             seeds: (2 ..= 40).collect(),
         })
+    }
+
+    fn implement_plan<R, VI>(
+        &self,
+        env: &Env,
+        current_model: &Matrix,
+        volatiles: VI,
+        commands_buf: &mut Vec<(Coord, BotCommand)>,
+        rng: &mut R,
+    )
+        -> Result<impl Iterator<Item = Nanobot>, Error> where
+        R: Rng,
+        VI: Iterator<Item = Region> + Clone,
+    {
+        Ok(None.into_iter())
     }
 }
 
