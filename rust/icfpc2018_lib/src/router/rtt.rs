@@ -12,11 +12,14 @@ use rtt::{
 
 use super::super::{
     coord::{
+        Axis,
         Coord,
         Region,
         Matrix,
+        CoordDiff,
+        LinearCoordDiff,
     },
-    // cmd::BotCommand,
+    cmd::BotCommand,
 };
 
 pub fn plan_route<VI>(
@@ -130,6 +133,67 @@ pub fn plan_route<VI>(
     Some(path)
 }
 
+pub fn plan_route_commands(route: &[Coord], commands: &mut Vec<(Coord, BotCommand)>) {
+    commands.clear();
+    let mut coord_a = if let Some(&coord) = route.first() {
+        coord
+    } else {
+        return;
+    };
+    let mut index = 1;
+    while index < route.len() {
+        let coord_b = route[index];
+        if let Some(&coord_c) = route.get(index + 1) {
+            // try to construct L-Move
+            if coord_b.diff(&coord_a).l_inf_norm() <= 5 {
+                let (sa, sb, maybe_sc) = split_limit(coord_b, coord_c, 5);
+                let short = |diff| match diff {
+                    CoordDiff(Coord { y: 0, z: 0, x, }) =>
+                        LinearCoordDiff::Short { axis: Axis::X, value: x, },
+                    CoordDiff(Coord { x: 0, z: 0, y, }) =>
+                        LinearCoordDiff::Short { axis: Axis::Y, value: y, },
+                    CoordDiff(Coord { x: 0, y: 0, z, }) =>
+                        LinearCoordDiff::Short { axis: Axis::Z, value: z, },
+                    _ =>
+                        unreachable!(),
+                };
+                commands.push((sb, BotCommand::LMove {
+                    short1: short(sa.diff(&coord_a)),
+                    short2: short(sb.diff(&sa)),
+                }));
+                if let Some(..) = maybe_sc {
+                    coord_a = sb;
+                    index += 1;
+                } else {
+                    coord_a = coord_c;
+                    index += 2;
+                }
+                continue;
+            }
+        }
+        // construct S-Move
+        let (sa, sb, maybe_sc) = split_limit(coord_a, coord_b, 15);
+        commands.push((sb, BotCommand::SMove {
+            long: match sb.diff(&sa) {
+                CoordDiff(Coord { y: 0, z: 0, x, }) =>
+                    LinearCoordDiff::Long { axis: Axis::X, value: x, },
+                CoordDiff(Coord { x: 0, z: 0, y, }) =>
+                    LinearCoordDiff::Long { axis: Axis::Y, value: y, },
+                CoordDiff(Coord { x: 0, y: 0, z, }) =>
+                    LinearCoordDiff::Long { axis: Axis::Z, value: z, },
+                _ =>
+                    unreachable!(),
+            },
+        }));
+        if let Some(..) = maybe_sc {
+            coord_a = sb;
+        } else {
+            coord_a = coord_b;
+            index += 1;
+        }
+    }
+}
+
 struct RttNodeFocus {
     node_ref: NodeRef,
     goal_reached: bool,
@@ -192,6 +256,25 @@ fn random_valid_edge_path<VI, R>(
         })
         .map(|rt| rt.0)
         .next()
+}
+
+fn split_limit(a: Coord, b: Coord, limit: isize) -> (Coord, Coord, Option<Coord>) {
+    match b.diff(&a) {
+        CoordDiff(Coord { y: 0, z: 0, x, }) if x.abs() <= limit =>
+            (a, b, None),
+        CoordDiff(Coord { y: 0, z: 0, x, }) =>
+            (a, a.add(CoordDiff(Coord { y: 0, z: 0, x: if x < 0 { -limit } else { limit }, })), Some(b)),
+        CoordDiff(Coord { x: 0, z: 0, y, }) if y.abs() <= limit =>
+            (a, b, None),
+        CoordDiff(Coord { x: 0, z: 0, y, }) =>
+            (a, a.add(CoordDiff(Coord { x: 0, z: 0, y: if y < 0 { -limit } else { limit }, })), Some(b)),
+        CoordDiff(Coord { x: 0, y: 0, z, }) if z.abs() <= limit =>
+            (a, b, None),
+        CoordDiff(Coord { x: 0, y: 0, z, }) =>
+            (a, a.add(CoordDiff(Coord { x: 0, y: 0, z: if z < 0 { -limit } else { limit }, })), Some(b)),
+        _ =>
+            unreachable!(),
+    }
 }
 
 #[cfg(test)]
@@ -290,7 +373,7 @@ mod test {
                     &Coord { x: 2, y: 1, z: 2, },
                 ),
             ].into_iter(),
-            64,
+            128,
         );
         path.as_mut().map(|p| if let Some(i) = p.iter().position(|c| c == &Coord { x: 1, y: 1, z: 0, }) { p.remove(i); });
         path.as_mut().map(|p| if let Some(i) = p.iter().position(|c| c == &Coord { x: 2, y: 2, z: 1, }) { p.remove(i); });
@@ -301,5 +384,137 @@ mod test {
             Coord { x: 2, y: 2, z: 0 },
             Coord { x: 2, y: 2, z: 2 },
         ]));
+    }
+
+    #[test]
+    fn split_limit() {
+        assert_eq!(
+            super::split_limit(Coord { x: 0, y: 0, z: 0, }, Coord { x: 14, y: 0, z: 0, }, 15),
+            (Coord { x: 0, y: 0, z: 0, }, Coord { x: 14, y: 0, z: 0, }, None)
+        );
+        assert_eq!(
+            super::split_limit(Coord { x: 0, y: 0, z: 0, }, Coord { x: 20, y: 0, z: 0, }, 15),
+            (Coord { x: 0, y: 0, z: 0, }, Coord { x: 15, y: 0, z: 0, }, Some(Coord { x: 20, y: 0, z: 0, })),
+        );
+        assert_eq!(
+            super::split_limit(Coord { x: 0, y: 0, z: 0, }, Coord { y: 14, x: 0, z: 0, }, 15),
+            (Coord { x: 0, y: 0, z: 0, }, Coord { y: 14, x: 0, z: 0, }, None)
+        );
+        assert_eq!(
+            super::split_limit(Coord { x: 0, y: 0, z: 0, }, Coord { y: 20, x: 0, z: 0, }, 15),
+            (Coord { x: 0, y: 0, z: 0, }, Coord { y: 15, x: 0, z: 0, }, Some(Coord { y: 20, x: 0, z: 0, })),
+        );
+        assert_eq!(
+            super::split_limit(Coord { x: 0, y: 0, z: 0, }, Coord { z: 14, x: 0, y: 0, }, 15),
+            (Coord { x: 0, y: 0, z: 0, }, Coord { z: 14, x: 0, y: 0, }, None)
+        );
+        assert_eq!(
+            super::split_limit(Coord { x: 0, y: 0, z: 0, }, Coord { z: 20, x: 0, y: 0, }, 15),
+            (Coord { x: 0, y: 0, z: 0, }, Coord { z: 15, x: 0, y: 0, }, Some(Coord { z: 20, x: 0, y: 0, })),
+        );
+    }
+
+    #[test]
+    fn plan_route_commands() {
+        use super::super::super::{
+            coord::{LinearCoordDiff, Axis},
+            cmd::BotCommand,
+        };
+
+        let mut cmds = Vec::new();
+        super::plan_route_commands(&[], &mut cmds);
+        assert_eq!(cmds, vec![]);
+        super::plan_route_commands(&[Coord { x: 0, y: 0, z: 0, }], &mut cmds);
+        assert_eq!(cmds, vec![]);
+        super::plan_route_commands(
+            &[
+                Coord { x: 0, y: 0, z: 0, },
+                Coord { x: 7, y: 0, z: 0, },
+            ],
+            &mut cmds,
+        );
+        assert_eq!(cmds, vec![
+            (Coord { x: 7, y: 0, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 7 } }),
+        ]);
+        super::plan_route_commands(
+            &[
+                Coord { x: 0, y: 0, z: 0, },
+                Coord { x: 17, y: 0, z: 0, },
+            ],
+            &mut cmds,
+        );
+        assert_eq!(cmds, vec![
+            (Coord { x: 15, y: 0, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 15 } }),
+            (Coord { x: 17, y: 0, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 2 } }),
+        ]);
+        super::plan_route_commands(
+            &[
+                Coord { x: 0, y: 0, z: 0, },
+                Coord { x: 17, y: 0, z: 0, },
+                Coord { x: 17, y: 4, z: 0, },
+            ],
+            &mut cmds,
+        );
+        assert_eq!(cmds, vec![
+            (Coord { x: 15, y: 0, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 15 } }),
+            (Coord { x: 17, y: 4, z: 0 }, BotCommand::LMove {
+                short1: LinearCoordDiff::Short { axis: Axis::X, value: 2 },
+                short2: LinearCoordDiff::Short { axis: Axis::Y, value: 4 },
+            }),
+        ]);
+        super::plan_route_commands(
+            &[
+                Coord { x: 0, y: 0, z: 0, },
+                Coord { x: 17, y: 0, z: 0, },
+                Coord { x: 17, y: 19, z: 0, },
+            ],
+            &mut cmds,
+        );
+        assert_eq!(cmds, vec![
+            (Coord { x: 15, y: 0, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 15 } }),
+            (Coord { x: 17, y: 5, z: 0 }, BotCommand::LMove {
+                short1: LinearCoordDiff::Short { axis: Axis::X, value: 2 },
+                short2: LinearCoordDiff::Short { axis: Axis::Y, value: 5 },
+            }),
+            (Coord { x: 17, y: 19, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: 14 } }),
+        ]);
+        super::plan_route_commands(
+            &[
+                Coord { x: 0, y: 0, z: 0, },
+                Coord { x: 17, y: 0, z: 0, },
+                Coord { x: 17, y: 21, z: 0, },
+            ],
+            &mut cmds,
+        );
+        assert_eq!(cmds, vec![
+            (Coord { x: 15, y: 0, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 15 } }),
+            (Coord { x: 17, y: 5, z: 0 }, BotCommand::LMove {
+                short1: LinearCoordDiff::Short { axis: Axis::X, value: 2 },
+                short2: LinearCoordDiff::Short { axis: Axis::Y, value: 5 },
+            }),
+            (Coord { x: 17, y: 20, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: 15 } }),
+            (Coord { x: 17, y: 21, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: 1 } }),
+        ]);
+        super::plan_route_commands(
+            &[
+                Coord { x: 0, y: 0, z: 0, },
+                Coord { x: 17, y: 0, z: 0, },
+                Coord { x: 17, y: 21, z: 0, },
+                Coord { x: 17, y: 21, z: -3, },
+            ],
+            &mut cmds,
+        );
+        assert_eq!(cmds, vec![
+            (Coord { x: 15, y: 0, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 15 } }),
+            (Coord { x: 17, y: 5, z: 0 }, BotCommand::LMove {
+                short1: LinearCoordDiff::Short { axis: Axis::X, value: 2 },
+                short2: LinearCoordDiff::Short { axis: Axis::Y, value: 5 },
+            }),
+            (Coord { x: 17, y: 20, z: 0 }, BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: 15 } }),
+            (Coord { x: 17, y: 21, z: -3 }, BotCommand::LMove {
+                short1: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
+                short2: LinearCoordDiff::Short { axis: Axis::Z, value: -3 },
+            }),
+       ]);
     }
 }
