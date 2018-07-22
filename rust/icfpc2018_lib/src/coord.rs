@@ -327,6 +327,10 @@ impl Matrix {
             && (c.y as usize) < self.dim()
             && (c.z as usize) < self.dim()
     }
+
+    pub fn equals(&self, other: &Matrix) -> bool {
+        &self.field == &other.field
+    }
 }
 
 use std::fmt;
