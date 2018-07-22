@@ -21,10 +21,15 @@ const INIT_POS: Coord = Coord { x: 0, y: 0, z: 0, };
 pub enum Error {
     ModelsDimMismatch { source_dim: usize, target_dim: usize, },
     EmptyCommandsBufferForRoute { route: Vec<Coord>, },
+    RouteAttempsLimitExceeded(usize),
+    GlobalTicksLimitExceeded(usize),
 }
 
 pub struct Config {
+    init_bots: Vec<(Bid, Bot)>,
     rtt_limit: usize,
+    route_attempts_limit: usize,
+    global_ticks_limit: usize,
 }
 
 pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Result<Vec<BotCommand>, Error> {
@@ -39,17 +44,28 @@ pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Resu
     let mut commands_buf: Vec<(Coord, BotCommand)> = Vec::new();
     let mut script: Vec<BotCommand> = Vec::new();
 
-    let (init_bid, init_bot) = Nanobot::init_bot();
-    let mut nanobots = vec![
-        Nanobot {
-            bid: init_bid,
-            bot: init_bot,
-            plan: Plan::Init,
-        },
-    ];
+    let mut nanobots = if env.config.init_bots.is_empty() {
+        let (init_bid, init_bot) = Nanobot::init_bot();
+        vec![
+            Nanobot {
+                bid: init_bid,
+                bot: init_bot,
+                plan: Plan::Init,
+            },
+        ]
+    } else {
+        env.config.init_bots.iter()
+            .map(|&(bid, ref bot)| Nanobot { bid, bot: bot.clone(), plan: Plan::Init, })
+            .collect()
+    };
 
+    let mut ticks_count = 0;
     let mut work_complete = false;
     loop {
+        ticks_count += 1;
+        if ticks_count >= env.config.global_ticks_limit {
+            return Err(Error::GlobalTicksLimitExceeded(ticks_count));
+        }
         // check for stop condition
         let work_state = if work_complete || current_model.equals(&env.target_model) {
             work_complete = true;
@@ -74,6 +90,7 @@ pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Resu
             WorkState::InProgress
         };
 
+        // println!("| loop with bots: {:?}", nanobots);
 
         let mut next_nanobots =
             Vec::with_capacity(nanobots.len());
@@ -246,6 +263,8 @@ impl Nanobot {
                     // reached a target
                     unimplemented!()
                 },
+                Plan::HeadingFor { attempts, .. } if attempts > env.config.route_attempts_limit =>
+                    return PlanResult::Error(Error::RouteAttempsLimitExceeded(attempts)),
                 Plan::HeadingFor { target, attempts, } => {
                     // still moving to target
                     let route_result =
@@ -261,7 +280,7 @@ impl Nanobot {
                                 WorkState::InProgress => {
                                     // pick another wandering target
                                     let target = pick_random_coord(current_model.dim() as isize, rng);
-                                    self.plan = Plan::HeadingFor { target, attempts: 0, };
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, };
                                 },
                                 WorkState::Completed { .. } => {
                                     // try to find a free position nearby
@@ -331,9 +350,11 @@ fn route_and_step<VI>(
 mod test {
     use super::super::super::{
         coord::{
+            Axis,
             Coord,
             Matrix,
             Resolution,
+            LinearCoordDiff,
         },
         state::Bot,
         cmd::BotCommand,
@@ -366,9 +387,52 @@ mod test {
     fn solve_empty() {
         let source_model = Matrix::from_iter(Resolution(3), vec![]);
         let target_model = Matrix::from_iter(Resolution(3), vec![]);
-        // let script = super::solve(source_model, target_model, super::Config {
-        //     wandering_rtt_limit: 16,
-        // }).unwrap();
-        // assert_eq!(script, vec![BotCommand::Halt]);
+        let script = super::solve(source_model, target_model, super::Config {
+            init_bots: vec![],
+            rtt_limit: 64,
+            route_attempts_limit: 16,
+            global_ticks_limit: 100,
+        }).unwrap();
+        assert_eq!(script, vec![BotCommand::Halt]);
+    }
+
+    #[test]
+    fn solve_move_and_halt() {
+        let source_model = Matrix::from_iter(Resolution(3), vec![]);
+        let target_model = Matrix::from_iter(Resolution(3), vec![]);
+        let script = super::solve(source_model, target_model, super::Config {
+            init_bots: vec![(1, Bot { pos: Coord { x: 1, y: 0, z: 0, }, seeds: vec![], })],
+            rtt_limit: 64,
+            route_attempts_limit: 16,
+            global_ticks_limit: 100,
+        }).unwrap();
+        assert_eq!(
+            script,
+            vec![
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: -1 } },
+                BotCommand::Halt
+            ],
+        );
+    }
+
+    #[test]
+    fn solve_fusion_and_halt() {
+        let source_model = Matrix::from_iter(Resolution(3), vec![]);
+        let target_model = Matrix::from_iter(Resolution(3), vec![]);
+        let script = super::solve(source_model, target_model, super::Config {
+            init_bots: vec![
+                (1, Bot { pos: Coord { x: 0, y: 1, z: 1, }, seeds: vec![], }),
+                (2, Bot { pos: Coord { x: 2, y: 2, z: 2, }, seeds: vec![], }),
+            ],
+            rtt_limit: 64,
+            route_attempts_limit: 16,
+            global_ticks_limit: 100,
+        }).unwrap();
+        assert_eq!(
+            script,
+            vec![
+                BotCommand::Halt
+            ],
+        );
     }
 }
