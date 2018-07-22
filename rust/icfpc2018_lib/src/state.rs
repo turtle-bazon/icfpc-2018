@@ -1,4 +1,5 @@
 use std::collections::{HashSet, BTreeMap};
+use std::mem;
 
 use super::{
     coord::{
@@ -58,6 +59,8 @@ pub enum Error {
     HaltNotInLow,
     MoveOutOfBounds {c: Coord},
     MoveRegionIsNotVoid {r: Region},
+    NoSeedsAvailable,
+    TooBigSplitSeed,
 }
 
 
@@ -192,7 +195,25 @@ impl State {
 
                 volatile.insert(cf);
             },
-            BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
+            BotCommand::Fission{ near, split_m } => {
+                let n = *near;
+                let cf = c.add(n);
+                let bot = self.bots.get(&bid).unwrap();
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+                if bot.seeds.is_empty() {
+                    return Err(Error::NoSeedsAvailable)
+                }
+                if *split_m as usize > bot.seeds.iter().max().unwrap() + 1 {
+                    return Err(Error::TooBigSplitSeed)
+                }
+                if self.matrix.is_filled(&cf) {
+                    return Err(Error::MoveRegionIsNotVoid{r: Region::from_corners(&cf, &cf)})
+                }
+
+                volatile.insert(cf);
+            }
             BotCommand::FusionP{ near: _ } => unimplemented!(),
             BotCommand::FusionS{ near: _ } => unimplemented!(),
             BotCommand::GFill{ near: _, far: _ } => unimplemented!(),
@@ -259,8 +280,25 @@ impl State {
                 else {
                     self.energy += 3;
                 }
-            }
-            BotCommand::Fission{ near: _, split_m: _ } => unimplemented!(),
+            },
+            BotCommand::Fission{ near, split_m } => {
+                let n = *near;
+                let cf = c.add(n);
+
+                let mut seeds: Vec<Bid> = vec![];
+                mem::swap(&mut seeds, &mut self.bots.get_mut(&bid).unwrap().seeds);
+
+                let new_bid = seeds.drain(0..1).next().unwrap();
+                let new_seeds = seeds.drain(0..*split_m as usize).collect();
+
+                mem::swap(&mut seeds, &mut self.bots.get_mut(&bid).unwrap().seeds);
+                let new_bot = Bot {
+                    pos: cf,
+                    seeds: new_seeds,
+                };
+                self.bots.insert(new_bid, new_bot);
+                self.energy += 24;
+            },
             BotCommand::FusionP{ near: _ } => unimplemented!(),
             BotCommand::FusionS{ near: _ } => unimplemented!(),
             BotCommand::GFill{ near: _, far: _ } => unimplemented!(),
@@ -654,5 +692,23 @@ mod test {
         state.step_mut(&mut trace).unwrap();
         // println!("Energy: {}", state.energy);
         // assert!(false);
+    }
+
+    use super::super::junk::FA001_TGT_MDL;
+    use super::super::junk::FA001_MULTIBOT_NBT;
+
+    #[test]
+    fn multibot_fa001() {
+        let model = super::super::model::read_model(FA001_TGT_MDL).unwrap().new_empty_of_same_size();
+        let matrix = model.new_empty_of_same_size();
+        let cmds = super::super::cmd::from_bytes(FA001_MULTIBOT_NBT).unwrap();
+        assert_eq!(cmds.len(), 1212);
+
+        let mut state = State::new(matrix, vec![]);
+        let res = state.run_mut(cmds);
+
+        assert_eq!(res, Ok(()));
+        assert_eq!(state.steps, 212);
+        assert_eq!(state.energy, 45727148);
     }
 }
