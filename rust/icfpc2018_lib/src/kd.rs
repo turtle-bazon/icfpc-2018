@@ -132,6 +132,7 @@ mod test {
             vec![(Coord { x: 1, y: 1, z: 1 }, 3)],
         );
     }
+
     #[test]
     fn build_5() {
         let kd = KdTree::build(vec![
@@ -150,6 +151,32 @@ mod test {
                 (Coord { x: 1, y: 1, z: 1 }, 3),
                 (Coord { x: 2, y: 0, z: 2 }, 4),
                 (Coord { x: 2, y: 2, z: 2 }, 6),
+            ],
+        );
+    }
+
+    #[test]
+    fn la008_tgt_mdl_nearest() {
+        use super::super::junk::LA008_TGT_MDL;
+        let matrix = super::super::model::read_model(LA008_TGT_MDL).unwrap();
+        let kd = KdTree::build(matrix.filled_voxels().cloned());
+        let mut neighbours: Vec<_> =
+            kd.nearest(&Coord { x: 0, y: 0, z: 0, }).collect();
+        neighbours.sort_by_key(|&(coord, dist)| (dist, coord));
+        // assert_eq!(neighbours.len(), matrix.filled_voxels().count());
+        assert_eq!(
+            &neighbours[0 .. 10],
+            &[
+                (Coord { x: 8, y: 0, z: 3 }, 11),
+                (Coord { x: 5, y: 3, z: 4 }, 12),
+                (Coord { x: 5, y: 4, z: 3 }, 12),
+                (Coord { x: 6, y: 0, z: 6 }, 12),
+                (Coord { x: 6, y: 3, z: 3 }, 12),
+                (Coord { x: 7, y: 0, z: 5 }, 12),
+                (Coord { x: 7, y: 1, z: 4 }, 12),
+                (Coord { x: 7, y: 2, z: 3 }, 12),
+                (Coord { x: 8, y: 0, z: 4 }, 12),
+                (Coord { x: 8, y: 1, z: 3 }, 12),
             ],
         );
     }
