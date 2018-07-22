@@ -55,6 +55,7 @@ pub enum RegionDim {
     Box,
 }
 
+#[derive(Clone)]
 pub struct Matrix {
     dim: usize,
     field: BitVec,
@@ -329,6 +330,10 @@ impl Matrix {
             && (c.x as usize) < self.dim()
             && (c.y as usize) < self.dim()
             && (c.z as usize) < self.dim()
+    }
+
+    pub fn equals(&self, other: &Matrix) -> bool {
+        &self.field == &other.field
     }
 }
 

@@ -182,6 +182,33 @@ impl Iterator for Reverser {
     }
 }
 
+fn balance_counts(mut vec: Vec<usize>, n: usize) -> Vec<usize> {
+    let mut cnts = Vec::new();
+    for _ in 0 .. vec.len() {
+        cnts.push(1);
+    }
+    while vec.len()>n {
+        let idx = {
+            let mut k = vec.iter().enumerate().collect::<Vec<_>>();
+            k.sort_unstable_by(|x,y| x.1.cmp(&y.1));
+            k[0].0
+        };
+        let ni = match idx {
+            0 => 1,
+            c @ _ if c == vec.len()-1 => idx-1,
+            _ => if vec[idx-1] > vec[idx+1] { idx+1 } else { idx-1 },
+        };
+        vec[ni]+=vec[idx];
+        cnts[ni]+=cnts[idx];
+        vec.remove(idx);
+        cnts.remove(idx);
+    }
+    //println!("{:?}",vec);
+    //println!("{:?}",cnts);
+    cnts
+}
+
+
 fn main() -> Result<(),Error> {
     let app = app_from_crate!()
         .arg(Arg::with_name("original")
@@ -283,14 +310,8 @@ fn main() -> Result<(),Error> {
     }
     println!("Bots count: {}",bots_count);
     let bot_config = {
-        let mut cnts = Vec::with_capacity(bots_count);
-        for _ in 0 .. bots_count {
-            cnts.push(0);
-        }
-        let m = cnts.len();
-        for (i,_) in stripes.iter().enumerate() {
-            cnts[i%m] += 1;
-        }
+        let cnts = balance_counts(ocount.clone(),bots_count);
+        println!("Op counts: {:?}",cnts);
         let mut p = 0;
         let mut res = Vec::new();
         for c in cnts {
