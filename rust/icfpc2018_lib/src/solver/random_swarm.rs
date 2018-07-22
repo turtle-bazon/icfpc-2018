@@ -10,6 +10,7 @@ use super::super::{
         Bid,
         Bot,
     },
+    kd,
 };
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -17,10 +18,14 @@ pub enum Error {
 
 }
 
-pub fn solve(_source_model: Matrix, _target_model: Matrix) -> Result<Vec<BotCommand>, Error> {
+pub fn solve(source_model: Matrix, target_model: Matrix) -> Result<Vec<BotCommand>, Error> {
     let mut _rng = rand::thread_rng();
     let mut _nanobots = Nanobot::init();
 
+    let _source_kd =
+        kd::KdTree::build(source_model.filled_voxels().cloned());
+    let _target_kd =
+        kd::KdTree::build(target_model.filled_voxels().cloned());
 
     unimplemented!()
 }
