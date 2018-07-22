@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use rand::{self, Rng};
 
 use rtt::{
@@ -12,7 +13,6 @@ use rtt::{
 use super::super::{
     coord::{
         Coord,
-        CoordDiff,
         Region,
         Matrix,
     },
@@ -26,17 +26,18 @@ pub fn plan_route<VI>(
     volatile: VI,
     max_iters: usize,
 )
-    -> Option<(Vec<()>, usize)> where
+    -> Option<Vec<Coord>> where
     VI: Iterator<Item = Region> + Clone
 {
     let mut rng = rand::thread_rng();
-    let mut visited_regions = Vec::new();
+    let mut visited_voxels = HashSet::new();
     let mut iters = 0;
 
     let planner = rtt::PlannerInit::new(EmptyRandomTree::new());
     let planner = planner.add_root_ok(|empty_rtt: EmptyRandomTree<Coord>| Ok(empty_rtt.add_root(bot_start)));
     let mut planner_node = planner.root_node_ok(|rtt: &mut RandomTree<Coord>| {
         let root_ref = rtt.root();
+        visited_voxels.insert(bot_start);
         Ok(RttNodeFocus { node_ref: root_ref, goal_reached: false, })
     });
 
@@ -81,6 +82,12 @@ pub fn plan_route<VI>(
                 Ok(RttNodeFocus { node_ref: closest.0, goal_reached: false, })
             });
 
+            if visited_voxels.contains(planner_closest.sample()) {
+                planner_ready_to_sample =
+                    planner_closest.no_transition_ok(|_rtt: &mut _, _node_ref| Ok(()));
+                continue;
+            }
+
             let maybe_route = {
                 let rtt = planner_closest.rtt();
                 let node_ref = &planner_closest.node_ref().node_ref;
@@ -88,21 +95,24 @@ pub fn plan_route<VI>(
                 let &src = rtt.get_state(node_ref);
                 random_valid_edge_path(
                     src, dst, matrix,
-                    visited_regions.iter().cloned().chain(volatile.clone()),
+	            volatile.clone(),
                     &mut rng,
                 )
             };
 
-            if let Some((jump, ra, rb, rc)) = maybe_route {
+            if let Some(jump) = maybe_route {
                 planner_node =
                     planner_closest.has_transition_ok(|rtt: &mut RandomTree<Coord>, focus: RttNodeFocus, _dst| {
-                        visited_regions.push(ra);
-                        visited_regions.push(rb);
-                        visited_regions.push(rc);
                         let mut node_ref = focus.node_ref;
-                        node_ref = rtt.expand(node_ref, jump.mid_a);
-                        node_ref = rtt.expand(node_ref, jump.mid_b);
-                        node_ref = rtt.expand(node_ref, jump.finish);
+                        if visited_voxels.insert(jump.mid_a) {
+                            node_ref = rtt.expand(node_ref, jump.mid_a);
+                        }
+                        if visited_voxels.insert(jump.mid_b) {
+                            node_ref = rtt.expand(node_ref, jump.mid_b);
+                        }
+                        if visited_voxels.insert(jump.finish) {
+                            node_ref = rtt.expand(node_ref, jump.finish);
+                        }
                         Ok(RttNodeFocus {
                             node_ref,
                             goal_reached: jump.finish == bot_finish,
@@ -115,7 +125,9 @@ pub fn plan_route<VI>(
         }
     };
 
-    unimplemented!()
+    let mut path: Vec<_> = rev_path.collect();
+    path.reverse();
+    Some(path)
 }
 
 struct RttNodeFocus {
@@ -159,21 +171,15 @@ fn random_valid_edge_path<VI, R>(
     volatile: VI,
     rng: &mut R,
 )
-    -> Option<(EdgesJump, Region, Region, Region)> where
+    -> Option<EdgesJump> where
     VI: Iterator<Item = Region> + Clone,
     R: Rng,
 {
     random_edge_paths(start, finish, rng)
         .map(|jump| {
-            let CoordDiff(delta) = jump.mid_b.diff(&jump.finish);
-            let fix_finish = CoordDiff(Coord {
-                x: if delta.x < 0 { -1 } else if delta.x > 0 { 1 } else { 0 },
-                y: if delta.y < 0 { -1 } else if delta.y > 0 { 1 } else { 0 },
-                z: if delta.z < 0 { -1 } else if delta.z > 0 { 1 } else { 0 },
-            });
             let ra = Region::from_corners(&jump.start, &jump.mid_a);
             let rb = Region::from_corners(&jump.mid_a, &jump.mid_b);
-            let rc = Region::from_corners(&jump.mid_b, &jump.finish.add(fix_finish));
+            let rc = Region::from_corners(&jump.mid_b, &jump.finish);
             (jump, ra, rb, rc)
         })
         .filter(move |&(_, ref ra, ref rb, ref rc)| {
@@ -184,6 +190,7 @@ fn random_valid_edge_path<VI, R>(
                 && !matrix.contains_filled(&rb)
                 && !matrix.contains_filled(&rc)
         })
+        .map(|rt| rt.0)
         .next()
 }
 
@@ -254,16 +261,45 @@ mod test {
             )).into_iter(),
             &mut rand::thread_rng(),
         );
-        assert_eq!(path, Some((
+        assert_eq!(path, Some(
             EdgesJump {
                 start: Coord { x: 0, y: 0, z: 0 },
                 mid_a: Coord { x: 0, y: 2, z: 0 },
                 mid_b: Coord { x: 0, y: 2, z: 2 },
                 finish: Coord { x: 2, y: 2, z: 2 },
-            },
-            Region { min: Coord { x: 0, y: 0, z: 0 }, max: Coord { x: 0, y: 2, z: 0 } },
-            Region { min: Coord { x: 0, y: 2, z: 0 }, max: Coord { x: 0, y: 2, z: 2 } },
-            Region { min: Coord { x: 0, y: 2, z: 2 }, max: Coord { x: 1, y: 2, z: 2 } },
-        )));
+            }
+        ));
+    }
+
+    #[test]
+    fn plan_route() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 0, y: 1, z: 0, },
+        ]);
+        let mut path = super::plan_route(
+            &Coord { x: 0, y: 0, z: 0, },
+            &Coord { x: 2, y: 2, z: 2, },
+            &matrix,
+            vec![
+                Region::from_corners(
+                    &Coord { x: 0, y: 1, z: 1, },
+                    &Coord { x: 1, y: 2, z: 2, },
+                ),
+                Region::from_corners(
+                    &Coord { x: 2, y: 0, z: 0, },
+                    &Coord { x: 2, y: 1, z: 2, },
+                ),
+            ].into_iter(),
+            64,
+        );
+        path.as_mut().map(|p| if let Some(i) = p.iter().position(|c| c == &Coord { x: 1, y: 1, z: 0, }) { p.remove(i); });
+        path.as_mut().map(|p| if let Some(i) = p.iter().position(|c| c == &Coord { x: 2, y: 2, z: 1, }) { p.remove(i); });
+        assert_eq!(path, Some(vec![
+            Coord { x: 0, y: 0, z: 0 },
+            Coord { x: 1, y: 0, z: 0 },
+            Coord { x: 1, y: 2, z: 0 },
+            Coord { x: 2, y: 2, z: 0 },
+            Coord { x: 2, y: 2, z: 2 },
+        ]));
     }
 }
