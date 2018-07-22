@@ -47,6 +47,7 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
     let mut commands_buf: Vec<(Coord, BotCommand)> = Vec::new();
     let mut script: Vec<BotCommand> = Vec::new();
     let mut volatiles: Vec<Region> = Vec::new();
+    let mut positions: Vec<Coord> = Vec::new();
 
     let mut nanobots = if env.config.init_bots.is_empty() {
         let (init_bid, init_bot) = Nanobot::init_bot();
@@ -97,12 +98,30 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
         // println!("| loop with bots: {:?}", nanobots);
 
         volatiles.clear();
+        positions.clear();
+        positions.extend(nanobots.iter().map(|nanobot| nanobot.bot.pos));
 
         let mut next_nanobots =
             Vec::with_capacity(nanobots.len());
         for nanobot in nanobots {
+            let nanobot_pos = nanobot.bot.pos;
             let implement_result =
-                nanobot.implement_plan(&env, &current_model, work_state, volatiles.iter().cloned(), &mut commands_buf, rng);
+                nanobot.implement_plan(
+                    &env,
+                    &current_model,
+                    work_state,
+                    |region| if current_model.contains_filled(region) {
+                        false
+                    } else if volatiles.iter().any(|reg| reg.intersects(region)) {
+                        false
+                    } else if positions.iter().filter(|&pos| pos != &nanobot_pos).any(|pos| region.contains(pos)) {
+                        false
+                    } else {
+                        true
+                    },
+                    &mut commands_buf,
+                    rng,
+                );
 
             let mut interpret = |nanobot: &mut Nanobot, cmd: &BotCommand| match cmd {
                 &BotCommand::Halt |
@@ -230,18 +249,16 @@ impl Nanobot {
         })
     }
 
-    fn implement_plan<R, VI>(
+    fn implement_plan<FP, R>(
         mut self,
         env: &Env,
         current_model: &Matrix,
         work_state: WorkState,
-        volatiles: VI,
+        is_passable: FP,
         commands_buf: &mut Vec<(Coord, BotCommand)>,
         rng: &mut R,
     )
-        -> PlanResult where
-        R: Rng,
-        VI: Iterator<Item = Region> + Clone,
+        -> PlanResult where FP: Fn(&Region) -> bool, R: Rng,
     {
         match work_state {
             WorkState::InProgress =>
@@ -286,7 +303,7 @@ impl Nanobot {
                 Plan::HeadingFor { target, attempts, } => {
                     // still moving to target
                     let route_result =
-                        route_and_step(&self.bot.pos, &target, current_model, volatiles.clone(), commands_buf, env.config.rtt_limit, rng);
+                        route_and_step(&self.bot.pos, &target, current_model, &is_passable, commands_buf, env.config.rtt_limit, rng);
                     match route_result {
                         Ok(Some(moving_cmd)) => {
                             // can continue moving
@@ -333,24 +350,24 @@ fn pick_random_coord<R>(dim: isize, rng: &mut R) -> Coord where R: Rng {
     }
 }
 
-fn route_and_step<VI, R>(
+fn route_and_step<FP, R>(
     start: &Coord,
     finish: &Coord,
     current_model: &Matrix,
-    volatiles: VI,
+    is_passable: FP,
     commands_buf: &mut Vec<(Coord, BotCommand)>,
     rtt_limit: usize,
     rng: &mut R,
 )
     -> Result<Option<BotCommand>, Error> where
-    VI: Iterator<Item = Region> + Clone,
+    FP: Fn(&Region) -> bool,
     R: Rng,
 {
     let maybe_route = rtt::plan_route_rng(
         start,
         finish,
-        current_model,
-        volatiles.clone(),
+        current_model.dim(),
+        is_passable,
         rtt_limit,
         rng,
     );
@@ -528,11 +545,14 @@ mod test {
                 },
 
                 BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 0 }) },
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: -1 } },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
+                },
                 BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
 
-                BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 0 }) },
-                BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
+                BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 1, z: 0 }) },
+                BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: -1, z: 0 }) },
 
                 BotCommand::Halt
             ],
