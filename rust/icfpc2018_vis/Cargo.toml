@@ -12,6 +12,6 @@ env_logger = "0.5"
 piston_window = "0.80"
 gfx = "0.17"
 gfx_text = "0.22"
-gfx_debug_draw = "0.21"
+gfx_debug_draw = { path = "../gfx_debug_draw" }
 vecmath = "0.3"
 camera_controllers = "0.24"
