@@ -12,3 +12,5 @@ pub mod state;
 pub mod model;
 pub mod cmd;
 pub mod kd;
+
+#[cfg(test)] mod junk;
