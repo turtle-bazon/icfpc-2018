@@ -193,8 +193,8 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
 struct Env {
     source_model: Matrix,
     target_model: Matrix,
-    source_kd: kd::KdTree,
-    target_kd: kd::KdTree,
+    _source_kd: kd::KdTree,
+    _target_kd: kd::KdTree,
     config: Config,
 }
 
@@ -205,8 +205,8 @@ impl Env {
         Env {
             source_model,
             target_model,
-            source_kd,
-            target_kd,
+            _source_kd: source_kd,
+            _target_kd: target_kd,
             config,
         }
     }
@@ -234,6 +234,7 @@ enum WorkState {
     },
 }
 
+#[allow(dead_code)]
 enum PlanResult {
     DoAndPerish(BotCommand),
     Regular { nanobot: Nanobot, cmd: BotCommand, },
