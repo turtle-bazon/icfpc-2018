@@ -33,6 +33,10 @@ pub struct Config {
 }
 
 pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Result<Vec<BotCommand>, Error> {
+    solve_rng(source_model, target_model, config, &mut rand::thread_rng())
+}
+
+pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, rng: &mut R) -> Result<Vec<BotCommand>, Error> where R: Rng {
     let source_dim = source_model.dim();
     let target_dim = target_model.dim();
     if source_dim != target_dim {
@@ -40,9 +44,9 @@ pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Resu
     }
     let env = Env::new(source_model, target_model, config);
     let mut current_model = env.source_model.clone();
-    let mut rng = rand::thread_rng();
     let mut commands_buf: Vec<(Coord, BotCommand)> = Vec::new();
     let mut script: Vec<BotCommand> = Vec::new();
+    let mut volatiles: Vec<Region> = Vec::new();
 
     let mut nanobots = if env.config.init_bots.is_empty() {
         let (init_bid, init_bot) = Nanobot::init_bot();
@@ -92,11 +96,13 @@ pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Resu
 
         // println!("| loop with bots: {:?}", nanobots);
 
+        volatiles.clear();
+
         let mut next_nanobots =
             Vec::with_capacity(nanobots.len());
         for nanobot in nanobots {
             let implement_result =
-                nanobot.implement_plan(&env, &current_model, work_state, None.into_iter(), &mut commands_buf, &mut rng);
+                nanobot.implement_plan(&env, &current_model, work_state, volatiles.iter().cloned(), &mut commands_buf, rng);
 
             let mut interpret = |nanobot: &mut Nanobot, cmd: &BotCommand| match cmd {
                 &BotCommand::Halt |
@@ -111,14 +117,26 @@ pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Resu
                 &BotCommand::SMove { ref long } => {
                     let move_diff = long.to_coord_diff();
                     let move_coord = nanobot.bot.pos.add(move_diff);
+                    volatiles.push(Region::from_corners(
+                        &move_coord,
+                        &nanobot.bot.pos,
+                    ));
                     nanobot.bot.pos = move_coord;
                 },
                 &BotCommand::LMove { ref short1, ref short2, } => {
-                    let move_diff = short1.to_coord_diff();
-                    let move_coord = nanobot.bot.pos.add(move_diff);
-                    let move_diff = short2.to_coord_diff();
-                    let move_coord = move_coord.add(move_diff);
-                    nanobot.bot.pos = move_coord;
+                    let move_diff_a = short1.to_coord_diff();
+                    let move_coord_a = nanobot.bot.pos.add(move_diff_a);
+                    volatiles.push(Region::from_corners(
+                        &move_coord_a,
+                        &nanobot.bot.pos,
+                    ));
+                    let move_diff_b = short2.to_coord_diff();
+                    let move_coord_b = move_coord_a.add(move_diff_b);
+                    volatiles.push(Region::from_corners(
+                        &move_coord_b,
+                        &move_coord_a,
+                    ));
+                    nanobot.bot.pos = move_coord_b;
                 },
                 &BotCommand::Fill { near, } => {
                     let fill_coord = nanobot.bot.pos.add(near);
@@ -235,7 +253,7 @@ impl Nanobot {
                         PlanResult::DoAndPerish(BotCommand::Halt)
                     } else if let Some(slave_coord) = slave_pick {
                         let fusion_cmd = BotCommand::FusionP {
-                            near: self.bot.pos.diff(&slave_coord),
+                            near: slave_coord.diff(&self.bot.pos),
                         };
                         PlanResult::Regular { nanobot: self, cmd: fusion_cmd, }
                     } else {
@@ -245,7 +263,7 @@ impl Nanobot {
                     match slave_pick {
                         Some(coord) if coord == self.bot.pos =>
                             return PlanResult::DoAndPerish(BotCommand::FusionS {
-                                near: self.bot.pos.diff(&INIT_POS),
+                                near: INIT_POS.diff(&self.bot.pos),
                             }),
                         _ =>
                             self.plan = Plan::HeadingFor { target: INIT_POS, attempts: 0, },
@@ -268,7 +286,7 @@ impl Nanobot {
                 Plan::HeadingFor { target, attempts, } => {
                     // still moving to target
                     let route_result =
-                        route_and_step(&self.bot.pos, &target, current_model, volatiles.clone(), commands_buf, env.config.rtt_limit);
+                        route_and_step(&self.bot.pos, &target, current_model, volatiles.clone(), commands_buf, env.config.rtt_limit, rng);
                     match route_result {
                         Ok(Some(moving_cmd)) => {
                             // can continue moving
@@ -315,23 +333,26 @@ fn pick_random_coord<R>(dim: isize, rng: &mut R) -> Coord where R: Rng {
     }
 }
 
-fn route_and_step<VI>(
+fn route_and_step<VI, R>(
     start: &Coord,
     finish: &Coord,
     current_model: &Matrix,
     volatiles: VI,
     commands_buf: &mut Vec<(Coord, BotCommand)>,
     rtt_limit: usize,
+    rng: &mut R,
 )
     -> Result<Option<BotCommand>, Error> where
     VI: Iterator<Item = Region> + Clone,
+    R: Rng,
 {
-    let maybe_route = rtt::plan_route(
+    let maybe_route = rtt::plan_route_rng(
         start,
         finish,
         current_model,
         volatiles.clone(),
         rtt_limit,
+        rng,
     );
     Ok(if let Some(route) = maybe_route {
         rtt::plan_route_commands(&route, commands_buf);
@@ -353,6 +374,7 @@ mod test {
             Axis,
             Coord,
             Matrix,
+            CoordDiff,
             Resolution,
             LinearCoordDiff,
         },
@@ -398,14 +420,22 @@ mod test {
 
     #[test]
     fn solve_move_and_halt() {
+        use rand::{SeedableRng, prng::XorShiftRng};
+        let mut rng: XorShiftRng =
+            SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         let source_model = Matrix::from_iter(Resolution(3), vec![]);
         let target_model = Matrix::from_iter(Resolution(3), vec![]);
-        let script = super::solve(source_model, target_model, super::Config {
-            init_bots: vec![(1, Bot { pos: Coord { x: 1, y: 0, z: 0, }, seeds: vec![], })],
-            rtt_limit: 64,
-            route_attempts_limit: 16,
-            global_ticks_limit: 100,
-        }).unwrap();
+        let script = super::solve_rng(
+            source_model,
+            target_model,
+            super::Config {
+                init_bots: vec![(1, Bot { pos: Coord { x: 1, y: 0, z: 0, }, seeds: vec![], })],
+                rtt_limit: 64,
+                route_attempts_limit: 16,
+                global_ticks_limit: 100,
+            },
+            &mut rng,
+        ).unwrap();
         assert_eq!(
             script,
             vec![
@@ -416,21 +446,94 @@ mod test {
     }
 
     #[test]
-    fn solve_fusion_and_halt() {
+    fn solve_fusion_2_and_halt() {
+        use rand::{SeedableRng, prng::XorShiftRng};
+        let mut rng: XorShiftRng =
+            SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         let source_model = Matrix::from_iter(Resolution(3), vec![]);
         let target_model = Matrix::from_iter(Resolution(3), vec![]);
-        let script = super::solve(source_model, target_model, super::Config {
-            init_bots: vec![
-                (1, Bot { pos: Coord { x: 0, y: 1, z: 1, }, seeds: vec![], }),
-                (2, Bot { pos: Coord { x: 2, y: 2, z: 2, }, seeds: vec![], }),
-            ],
-            rtt_limit: 64,
-            route_attempts_limit: 16,
-            global_ticks_limit: 100,
-        }).unwrap();
+        let script = super::solve_rng(
+            source_model,
+            target_model,
+            super::Config {
+                init_bots: vec![
+                    (1, Bot { pos: Coord { x: 0, y: 1, z: 1, }, seeds: vec![], }),
+                    (2, Bot { pos: Coord { x: 2, y: 2, z: 2, }, seeds: vec![], }),
+                    ],
+                rtt_limit: 64,
+                route_attempts_limit: 16,
+                global_ticks_limit: 100,
+            },
+            &mut rng,
+        ).unwrap();
         assert_eq!(
             script,
             vec![
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
+                },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
+                },
+
+                BotCommand::Wait,
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: -1 } },
+
+                BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 0 }) },
+                BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
+
+                BotCommand::Halt
+            ],
+        );
+    }
+
+    #[test]
+    fn solve_fusion_3_and_halt() {
+        use rand::{SeedableRng, prng::XorShiftRng};
+        let mut rng: XorShiftRng =
+            SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let source_model = Matrix::from_iter(Resolution(3), vec![]);
+        let target_model = Matrix::from_iter(Resolution(3), vec![]);
+        let script = super::solve_rng(
+            source_model,
+            target_model,
+            super::Config {
+                init_bots: vec![
+                    (1, Bot { pos: Coord { x: 0, y: 1, z: 1, }, seeds: vec![], }),
+                    (2, Bot { pos: Coord { x: 2, y: 2, z: 2, }, seeds: vec![], }),
+                    (3, Bot { pos: Coord { x: 0, y: 2, z: 0, }, seeds: vec![], }),
+                    ],
+                rtt_limit: 64,
+                route_attempts_limit: 16,
+                global_ticks_limit: 100,
+            },
+            &mut rng,
+        ).unwrap();
+        assert_eq!(
+            script,
+            vec![
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
+                },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
+                },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: -2 },
+                },
+
+                BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 0 }) },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: -1 } },
+                BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
+
+                BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 0 }) },
+                BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
+
                 BotCommand::Halt
             ],
         );

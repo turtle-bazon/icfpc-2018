@@ -23,8 +23,8 @@ use super::super::{
 };
 
 pub fn plan_route<VI>(
-    &bot_start: &Coord,
-    &bot_finish: &Coord,
+    bot_start: &Coord,
+    bot_finish: &Coord,
     matrix: &Matrix,
     volatile: VI,
     max_iters: usize,
@@ -32,11 +32,25 @@ pub fn plan_route<VI>(
     -> Option<Vec<Coord>> where
     VI: Iterator<Item = Region> + Clone
 {
+    plan_route_rng(bot_start, bot_finish, matrix, volatile, max_iters, &mut rand::thread_rng())
+}
+
+pub fn plan_route_rng<VI, R>(
+    &bot_start: &Coord,
+    &bot_finish: &Coord,
+    matrix: &Matrix,
+    volatile: VI,
+    max_iters: usize,
+    rng: &mut R,
+)
+    -> Option<Vec<Coord>> where
+    VI: Iterator<Item = Region> + Clone,
+    R: Rng,
+{
     if volatile.clone().any(|reg| reg.contains(&bot_finish)) || matrix.is_filled(&bot_finish) {
         return None;
     }
 
-    let mut rng = rand::thread_rng();
     let mut visited_voxels = HashSet::new();
     let mut iters = 0;
 
@@ -103,7 +117,7 @@ pub fn plan_route<VI>(
                 random_valid_edge_path(
                     src, dst, matrix,
 	            volatile.clone(),
-                    &mut rng,
+                    rng,
                 )
             };
 
