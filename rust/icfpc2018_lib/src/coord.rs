@@ -128,6 +128,9 @@ impl CoordDiff {
     pub fn is_near(&self) -> bool {
         self.l_inf_norm() == 1 && self.l_1_norm() <= 2
     }
+    pub fn is_far(&self) -> bool {
+        self.l_inf_norm() > 0 && self.l_inf_norm() <= 30
+    }
 }
 
 impl LinearCoordDiff {
@@ -233,6 +236,12 @@ impl Matrix {
         let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
         self.field.set(offset, true);
         self.filled.insert(coord);
+    }
+
+    pub fn set_void(&mut self, &coord: &Coord) {
+        let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
+        self.field.set(offset, false);
+        self.filled.remove(&coord);
     }
 
     pub fn is_filled(&self, coord: &Coord) -> bool {
@@ -515,5 +524,4 @@ mod tests {
             max: Coord { x: 2, y: 2, z: 2, },
         }));
     }
-
 }

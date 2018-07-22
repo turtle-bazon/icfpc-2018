@@ -6,6 +6,7 @@ pub enum Error {
     RestrictedLinearCoordDiff,
     LinearCoordDiffTooLong,
     CoordDiffIsNotNear,
+    CoordDiffIsNotFar,
     DeserializeNotNear(u8),
     DeserializeNotAxis(u8),
     DeserializeUnknown(u8),
@@ -23,6 +24,10 @@ pub enum BotCommand {
     Fill{ near: CoordDiff },
     FusionP{ near: CoordDiff },
     FusionS{ near: CoordDiff },
+
+    Void{ near: CoordDiff },
+    GFill{ near: CoordDiff, far: CoordDiff },
+    GVoid{ near: CoordDiff, far: CoordDiff },
 }
 impl BotCommand {  
     pub fn halt() -> Result<BotCommand,Error> {
@@ -71,6 +76,21 @@ impl BotCommand {
     pub fn sfusion(df: CoordDiff) -> Result<BotCommand,Error> {
         if !df.is_near() { return Err(Error::CoordDiffIsNotNear); }
         Ok(BotCommand::FusionS{ near: df })
+    }
+
+    pub fn void(df: CoordDiff) -> Result<BotCommand,Error> {
+        if !df.is_near() { return Err(Error::CoordDiffIsNotNear); }
+        Ok(BotCommand::Void{ near: df })
+    }
+    pub fn gfill(df: CoordDiff, df2: CoordDiff) -> Result<BotCommand,Error> {
+        if !df.is_near() { return Err(Error::CoordDiffIsNotNear); }
+        if !df2.is_far() { return Err(Error::CoordDiffIsNotFar); }
+        Ok(BotCommand::GFill{ near: df, far: df2 })
+    }
+    pub fn gvoid(df: CoordDiff, df2: CoordDiff) -> Result<BotCommand,Error> {
+        if !df.is_near() { return Err(Error::CoordDiffIsNotNear); }
+        if !df2.is_far() { return Err(Error::CoordDiffIsNotFar); }
+        Ok(BotCommand::GVoid{ near: df, far: df2 })
     }
 }
 
@@ -130,6 +150,23 @@ pub fn from_bytes(bytes: &[u8]) -> Result<Vec<BotCommand>,Error> {
                 let m = bytes[i];
                 res.push(BotCommand::fission(df,m)?)
             },
+            (near,0b010) => res.push(BotCommand::void(check_near(near)?)?),
+            (near,0b001) => { 
+                let df = check_near(near)?;
+                i += 1; let dx = (bytes[i] as isize) - 30;
+                i += 1; let dy = (bytes[i] as isize) - 30;
+                i += 1; let dz = (bytes[i] as isize) - 30;
+                let df2 = CoordDiff(Coord{ x: dx, y: dy, z: dz });
+                res.push(BotCommand::gfill(df,df2)?)
+            },
+            (near,0b000) => {
+                let df = check_near(near)?;
+                i += 1; let dx = (bytes[i] as isize) - 30;
+                i += 1; let dy = (bytes[i] as isize) - 30;
+                i += 1; let dz = (bytes[i] as isize) - 30;
+                let df2 = CoordDiff(Coord{ x: dx, y: dy, z: dz });
+                res.push(BotCommand::gvoid(df,df2)?)
+            },
             (p,0b100) => {
                 match ((p>>3) & 0b11,(p>>1) & 0b11, p & 0b1) {
                     (0,axis,0) => {
@@ -176,11 +213,24 @@ pub fn into_bytes(commands: &Vec<BotCommand>) -> Result<Vec<u8>,Error> {
             BotCommand::Wait => res.push(0b11111110),
             BotCommand::Flip => res.push(0b11111101),
             BotCommand::Fill{ near } => res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b011),
+            BotCommand::Void{ near } => res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b010),
             BotCommand::FusionP{ near } => res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b111),
             BotCommand::FusionS{ near } => res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b110),
             BotCommand::Fission{ near , split_m } => {
                 res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b101);
                 res.push(*split_m)
+            },
+            BotCommand::GFill{ near, far } => {
+                res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b001);
+                res.push( (far.0.x + 30) as u8 );
+                res.push( (far.0.y + 30) as u8 );
+                res.push( (far.0.z + 30) as u8 );
+            },
+            BotCommand::GVoid{ near, far } => {
+                res.push( ((near_to_u8(near)? & 0b11111)<<3) | 0b000);
+                res.push( (far.0.x + 30) as u8 );
+                res.push( (far.0.y + 30) as u8 );
+                res.push( (far.0.z + 30) as u8 );
             },
             BotCommand::SMove{ long } => {
                 match long {
@@ -447,6 +497,110 @@ mod test {
                 ];
         assert_eq!(buf,into_bytes(&res).unwrap());
     }
+
+
+    //For example, Void <1,0,1> is encoded as [10111010].
+    #[test]
+    fn test_deser_void() {
+        let buf = [0b10111010];
+        let res = vec![
+            BotCommand::void(CoordDiff(Coord {
+                x: 1,
+                y: 0,
+                z: 1,
+            })).unwrap()
+                ];
+        assert_eq!(res,from_bytes(&buf).unwrap());
+    }
+    #[test]
+    fn test_ser_void() {
+        let buf = vec![0b10111010];
+        let res = vec![
+            BotCommand::void(CoordDiff(Coord {
+                x: 1,
+                y: 0,
+                z: 1,
+            })).unwrap()
+                ];
+        assert_eq!(buf,into_bytes(&res).unwrap());
+    }
+
+    //For example, GFill <0,-1,0> <10,-15,20> is encoded as [01010001] [00101000] [00001111] [00110010].
+    #[test]
+    fn test_deser_gfill() {
+        let buf = [0b01010001,0b00101000,0b00001111,0b00110010];
+        let res = vec![
+            BotCommand::gfill(
+                CoordDiff(Coord {
+                    x: 0,
+                    y: -1,
+                    z: 0,
+                }),
+                CoordDiff(Coord {
+                    x: 10,
+                    y: -15,
+                    z: 20,
+                })).unwrap()
+                ];
+        assert_eq!(res,from_bytes(&buf).unwrap());
+    }
+    #[test]
+    fn test_ser_gfill() {
+        let buf = vec![0b01010001,0b00101000,0b00001111,0b00110010];
+        let res = vec![
+            BotCommand::gfill(
+                CoordDiff(Coord {
+                    x: 0,
+                    y: -1,
+                    z: 0,
+                }),
+                CoordDiff(Coord {
+                    x: 10,
+                    y: -15,
+                    z: 20,
+                })).unwrap()
+                ];
+        assert_eq!(buf,into_bytes(&res).unwrap());
+    }
+
+    //For example, GVoid <1,0,0> <5,5,-5> is encoded as [10110000] [00100011] [00100011] [00011001].
+    #[test]
+    fn test_deser_gvoid() {
+        let buf = [0b10110000,0b00100011,0b00100011,0b00011001];
+        let res = vec![
+            BotCommand::gvoid(
+                CoordDiff(Coord {
+                    x: 1,
+                    y: 0,
+                    z: 0,
+                }),
+                CoordDiff(Coord {
+                    x: 5,
+                    y: 5,
+                    z: -5,
+                })).unwrap()
+                ];
+        assert_eq!(res,from_bytes(&buf).unwrap());
+    }
+    #[test]
+    fn test_ser_gvoid() {
+        let buf = vec![0b10110000,0b00100011,0b00100011,0b00011001];
+        let res = vec![
+            BotCommand::gvoid(
+                CoordDiff(Coord {
+                    x: 1,
+                    y: 0,
+                    z: 0,
+                }),
+                CoordDiff(Coord {
+                    x: 5,
+                    y: 5,
+                    z: -5,
+                })).unwrap()
+                ];
+        assert_eq!(buf,into_bytes(&res).unwrap());
+    }
+    
 
     #[test]
     fn test_la003_nbt() {
