@@ -51,114 +51,88 @@ pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Resu
     let mut work_complete = false;
     loop {
         // check for stop condition
-        if work_complete || current_model.equals(&env.target_model) {
+        let work_state = if work_complete || current_model.equals(&env.target_model) {
             work_complete = true;
             if nanobots.is_empty() {
                 return Ok(script);
             }
+
+            let (mut master, mut slave) = (None, None);
+            for nanobot in nanobots.iter() {
+                let pos = nanobot.bot.pos;
+                if pos == INIT_POS {
+                    master = Some(pos);
+                } else if pos.diff(&INIT_POS).is_near() {
+                    slave = Some(pos);
+                }
+            }
+            WorkState::Completed {
+                nanobots_left: nanobots.len(),
+                slave_pick: master.and_then(|_| slave),
+            }
+        } else {
+            WorkState::InProgress
+        };
+
+
+        let mut next_nanobots =
+            Vec::with_capacity(nanobots.len());
+        for nanobot in nanobots {
+            let implement_result =
+                nanobot.implement_plan(&env, &current_model, work_state, None.into_iter(), &mut commands_buf, &mut rng);
+
+            let mut interpret = |nanobot: &mut Nanobot, cmd: &BotCommand| match cmd {
+                &BotCommand::Halt |
+                &BotCommand::Wait |
+                &BotCommand::Flip |
+                &BotCommand::Fission { .. } |
+                &BotCommand::FusionP{ .. } |
+                &BotCommand::FusionS{ .. } |
+                &BotCommand::GFill { .. } |
+                &BotCommand::GVoid { .. } =>
+                    (),
+                &BotCommand::SMove { ref long } => {
+                    let move_diff = long.to_coord_diff();
+                    let move_coord = nanobot.bot.pos.add(move_diff);
+                    nanobot.bot.pos = move_coord;
+                },
+                &BotCommand::LMove { ref short1, ref short2, } => {
+                    let move_diff = short1.to_coord_diff();
+                    let move_coord = nanobot.bot.pos.add(move_diff);
+                    let move_diff = short2.to_coord_diff();
+                    let move_coord = move_coord.add(move_diff);
+                    nanobot.bot.pos = move_coord;
+                },
+                &BotCommand::Fill { near, } => {
+                    let fill_coord = nanobot.bot.pos.add(near);
+                    current_model.set_filled(&fill_coord);
+                },
+                &BotCommand::Void{ near, } => {
+                    let void_coord = nanobot.bot.pos.add(near);
+                    current_model.set_void(&void_coord);
+                },
+            };
+
+            match implement_result {
+                PlanResult::DoAndPerish(cmd) =>
+                    script.push(cmd),
+                PlanResult::Regular { mut nanobot, cmd, } => {
+                    interpret(&mut nanobot, &cmd);
+                    script.push(cmd);
+                    next_nanobots.push(nanobot);
+                },
+                PlanResult::Spawn { mut parent, child, cmd, } => {
+                    interpret(&mut parent, &cmd);
+                    script.push(cmd);
+                    next_nanobots.push(parent);
+                    next_nanobots.push(child);
+                },
+                PlanResult::Error(error) =>
+                    return Err(error),
+            }
         }
-
-
-
-
-    //         // one nanobot left and it is ready for halt
-    //         if nanobots.len() == 1 && nanobots[0].0.bot.pos == init_bot_pos {
-    //             nanobots[0].0.plan = Plan::Perish;
-    //             nanobots[0].1 = BotCommand::Halt;
-    //         } else {
-    //             // find master nanobot
-    //             let master_index = nanobots.iter()
-    //                 .map(|p| &p.0)
-    //                 .enumerate()
-    //                 .min_by_key(|(_, ref nanobot)| nanobot.bot.pos.diff(&init_bot_pos).l_1_norm())
-    //                 .map(|(index, _)| index)
-    //                 .unwrap_or(0);
-    //             if nanobots[master_index].0.bot.pos == init_bot_pos {
-    //                 // master is ready for fusion
-
-
-    //             } else {
-    //                 // master is on the way to start position
-    //                 nanobots[master_index].0.plan = Plan::MasterReturnToBase {
-    //                     base: init_bot_pos,
-    //                 };
-
-    //             }
-
-
-
-    //             // find slave nanobot
-    //             let maybe_slave_index = {
-    //                 if nanobots[master_index].0.bot.pos == init_bot_pos {
-    //                     nanobots[master_index].1 = BotCommand::Wait;
-    //                     nanobots.iter()
-    //                         .position(|p| init_bot_pos.diff(&p.0.bot.pos).is_near());
-    //                 } else {
-
-
-    //                     nanobots[master_index].1 = BotCommand::Wait;
-    //                     None
-    //                 }
-    //             };
-    //             // fusion if able to
-    //             if let Some(slave_index) = maybe_slave_index {
-    //                 nanobots[master_index].1 = BotCommand::FusionP {
-    //                     near: init_bot_pos.diff(&nanobots[slave_index].0.bot.pos),
-    //                 };
-    //                 nanobots[slave_index].0.plan = Plan::Perish;
-    //                 nanobots[slave_index].1 = BotCommand::FusionS {
-    //                     near: nanobots[slave_index].0.bot.pos.diff(&init_bot_pos),
-    //                 };
-    //             }
-    //         }
-    //     }
-
-    //     let mut next_nanobots =
-    //         Vec::with_capacity(nanobots.len());
-    //     for (mut nanobot, performing_cmd) in nanobots {
-    //         // interpret command
-    //         match performing_cmd {
-    //             BotCommand::Halt |
-    //             BotCommand::Wait |
-    //             BotCommand::Flip |
-    //             BotCommand::Fission { .. } |
-    //             BotCommand::FusionP{ .. } |
-    //             BotCommand::FusionS{ .. } |
-    //             BotCommand::GFill { .. } |
-    //             BotCommand::GVoid { .. } =>
-    //                 (),
-    //             BotCommand::SMove { ref long } => {
-    //                 let move_diff = long.to_coord_diff();
-    //                 let move_coord = nanobot.bot.pos.add(move_diff);
-    //                 nanobot.bot.pos = move_coord;
-    //             },
-    //             BotCommand::LMove { ref short1, ref short2, } => {
-    //                 let move_diff = short1.to_coord_diff();
-    //                 let move_coord = nanobot.bot.pos.add(move_diff);
-    //                 let move_diff = short2.to_coord_diff();
-    //                 let move_coord = move_coord.add(move_diff);
-    //                 nanobot.bot.pos = move_coord;
-    //             },
-    //             BotCommand::Fill { near, } => {
-    //                 let fill_coord = nanobot.bot.pos.add(near);
-    //                 current_model.set_filled(&fill_coord);
-    //             },
-    //             BotCommand::Void{ near, } => {
-    //                 let void_coord = nanobot.bot.pos.add(near);
-    //                 current_model.set_void(&void_coord);
-    //             },
-    //         }
-
-    //         // record the script
-    //         script.push(performing_cmd);
-
-    //         // implement nanobot plan
-    //         let next_nanobots_iter =
-    //             nanobot.implement_plan(&env, &current_model, None.into_iter(), &mut commands_buf, &mut rng)?;
-    //         next_nanobots.extend(next_nanobots_iter);
-    //     }
-    //     nanobots = next_nanobots;
-    //     nanobots.sort_by_key(|&(ref bot, _)| bot.bid);
+        nanobots = next_nanobots;
+        nanobots.sort_by_key(|nanobot| nanobot.bid);
     }
 }
 
@@ -197,7 +171,7 @@ enum Plan {
     HeadingFor { target: Coord, attempts: usize, },
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum WorkState {
     InProgress,
     Completed {
@@ -286,21 +260,8 @@ impl Nanobot {
                             match work_state {
                                 WorkState::InProgress => {
                                     // pick another wandering target
-                                    let pick_result = pick_wandering_target(
-                                        &self.bot.pos,
-                                        env,
-                                        current_model,
-                                        volatiles.clone(),
-                                        commands_buf,
-                                        rng,
-                                    );
-                                    match pick_result {
-                                        Ok((wandering_cmd, wandering_coord)) => {
-                                            self.plan = Plan::HeadingFor { target: wandering_coord, attempts: 0, };
-                                        },
-                                        Err(error) =>
-                                            return PlanResult::Error(error),
-                                    }
+                                    let target = pick_random_coord(current_model.dim() as isize, rng);
+                                    self.plan = Plan::HeadingFor { target, attempts: 0, };
                                 },
                                 WorkState::Completed { .. } => {
                                     // try to find a free position nearby
@@ -332,29 +293,6 @@ fn pick_random_coord<R>(dim: isize, rng: &mut R) -> Coord where R: Rng {
         x: rng.gen_range(0, dim),
         y: rng.gen_range(0, dim),
         z: rng.gen_range(0, dim),
-    }
-}
-
-fn pick_wandering_target<R, VI>(
-    bot_pos: &Coord,
-    env: &Env,
-    current_model: &Matrix,
-    volatiles: VI,
-    commands_buf: &mut Vec<(Coord, BotCommand)>,
-    rng: &mut R,
-)
-    -> Result<(BotCommand, Coord), Error> where
-    R: Rng,
-    VI: Iterator<Item = Region> + Clone,
-{
-    let dim = current_model.dim() as isize;
-    loop {
-        let target = pick_random_coord(dim, rng);
-        if let Some(move_command) =
-            route_and_step(bot_pos, &target, current_model, volatiles.clone(), commands_buf, env.config.rtt_limit)?
-        {
-            return Ok((move_command, target));
-        }
     }
 }
 
