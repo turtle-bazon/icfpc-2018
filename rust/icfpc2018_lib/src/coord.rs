@@ -220,6 +220,10 @@ impl Matrix {
         }
     }
 
+    pub fn new_empty_of_same_size(&self) -> Matrix {
+        Matrix::new(Resolution(self.dim() as isize))
+    }
+
     pub fn from_iter<I>(dim: Resolution, filled_coords: I) -> Matrix where I: IntoIterator<Item = Coord> {
         let mut matrix = Matrix::new(dim);
         for coord in filled_coords {
