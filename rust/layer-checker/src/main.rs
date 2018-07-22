@@ -147,6 +147,41 @@ impl<I> Iterator for Translator<I>
     }
 }
 
+struct Reverser {
+    iter: std::vec::IntoIter<BotCommand>,
+}
+impl Reverser {
+    pub fn new<I: Iterator<Item=BotCommand>>(iter: I) -> Reverser {
+        Reverser {
+            iter: iter.collect::<Vec<_>>().into_iter(),
+        }
+    }
+}
+impl Iterator for Reverser {
+    type Item = BotCommand;
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter.next_back() {
+            None => None,
+            Some(BotCommand::Wait) |
+            Some(BotCommand::Halt) |
+            Some(BotCommand::Flip) |
+            Some(BotCommand::GFill{ .. }) |
+            Some(BotCommand::GVoid{ .. }) |
+            Some(BotCommand::FusionP{ .. }) |
+            Some(BotCommand::FusionS{ .. }) |
+            Some(BotCommand::Fission{ .. }) => unimplemented!(),
+            Some(BotCommand::Fill{ near }) => Some(BotCommand::Void{ near }),
+            Some(BotCommand::Void{ near }) => Some(BotCommand::Fill{ near }),
+            Some(BotCommand::SMove{ long: LinearCoordDiff::Long{ axis, value} }) => Some(BotCommand::SMove{ long: LinearCoordDiff::Long{ axis: axis, value: -value } }),
+            Some(BotCommand::LMove{ short1: LinearCoordDiff::Short { axis: a1, value: v1}, short2: LinearCoordDiff::Short { axis: a2, value: v2} }) => {
+                Some(BotCommand::LMove{ short1: LinearCoordDiff::Short { axis: a2, value: -v2}, short2: LinearCoordDiff::Short { axis: a1, value: -v1} })
+            },
+            _ => unreachable!(),
+        }
+    }
+}
+
 fn main() -> Result<(),Error> {
     let app = app_from_crate!()
         .arg(Arg::with_name("original")
@@ -166,12 +201,18 @@ fn main() -> Result<(),Error> {
              .short("n")
              .long("num-bots")
              .help("bot number")
-             .takes_value(true));
+             .takes_value(true))
+        .arg(Arg::with_name("reverse")
+             .display_order(4)
+             .short("r")
+             .long("reverse")
+             .help("Reverse"));
 
     let matches = app.get_matches();
     let original = value_t!(matches, "original", String).map_err(Error::Args)?;
     let optimized = value_t!(matches, "optimized", String).map_err(Error::Args)?;
     let mut bots_count = value_t!(matches, "n", usize).map_err(Error::Args)?;
+    let reverse = matches.is_present("reverse");
 
     
     let matrix = kernel::model::read_model_file(&original).map_err(Error::ModelReadError)?;
@@ -336,24 +377,46 @@ fn main() -> Result<(),Error> {
     asc.push(BotCommand::flip().unwrap());
     
     /* proc */
-    let mut v = VecDeque::new();
-    for _ in bot_config.iter().enumerate() {
-        v.push_front(Optimizer::new(Translator::new(states.pop().unwrap(),commands.pop().unwrap().into_iter())));
-    }
-    loop {
-        let mut cnt = 0;
-        let mut step = Vec::new();
-        for v in &mut v {
-            step.push(match v.next() {
-                None => BotCommand::wait().unwrap(),
-                Some(c) => {
-                    cnt += 1;
-                    c
-                },
-            })
+    if reverse {
+        let mut v = VecDeque::new();
+        for _ in bot_config.iter().enumerate() {
+            v.push_front(Reverser::new(Optimizer::new(Translator::new(states.pop().unwrap(),commands.pop().unwrap().into_iter()))));
         }
-        if cnt==0 { break; }
-        asc.extend(step.into_iter());
+        loop {
+            let mut cnt = 0;
+            let mut step = Vec::new();
+            for v in &mut v {
+                step.push(match v.next() {
+                    None => BotCommand::wait().unwrap(),
+                    Some(c) => {
+                        cnt += 1;
+                        c
+                    },
+                })
+            }
+            if cnt==0 { break; }
+            asc.extend(step.into_iter());
+        }
+    } else {
+        let mut v = VecDeque::new();
+        for _ in bot_config.iter().enumerate() {
+            v.push_front(Optimizer::new(Translator::new(states.pop().unwrap(),commands.pop().unwrap().into_iter())));
+        }
+        loop {
+            let mut cnt = 0;
+            let mut step = Vec::new();
+            for v in &mut v {
+                step.push(match v.next() {
+                    None => BotCommand::wait().unwrap(),
+                    Some(c) => {
+                        cnt += 1;
+                        c
+                    },
+                })
+            }
+            if cnt==0 { break; }
+            asc.extend(step.into_iter());
+        }
     }
 
     /* join */
