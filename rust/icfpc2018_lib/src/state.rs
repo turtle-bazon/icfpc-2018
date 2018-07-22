@@ -30,6 +30,7 @@ pub struct Command;
 
 #[derive(Debug)]
 pub struct State {
+    pub steps: usize,
     pub energy: usize,
     pub harmonics: Harmonics,
     pub matrix: Matrix,
@@ -70,6 +71,7 @@ impl State {
         });
 
         State {
+            steps: 0,
             energy: 0,
             harmonics: Harmonics::Low,
             matrix,
@@ -323,6 +325,27 @@ impl State {
             self.perform_mut(bid, &cmd);
         }
         Ok(())
+    }
+
+    pub fn run_mut(&mut self, mut commands: Vec<BotCommand>) -> Result<(), Error> {
+        // let mut step_counter = 0;
+        loop {
+            self.steps += 1;
+            let res = self.step_mut(&mut commands);
+            match res {
+                Err(e) => {
+                    // println!("ERROR: {:?}", e);
+                    // assert!(false);
+                    return Err(e);
+                },
+                Ok(_) => ()
+            }
+
+            if commands.is_empty() {
+                // println!("ENERGY {} Steps {} ", state.energy, step_counter);
+                return Ok(())
+            }
+        }
     }
 }
 
