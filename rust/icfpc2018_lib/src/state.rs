@@ -214,8 +214,20 @@ impl State {
 
                 volatile.insert(cf);
             }
-            BotCommand::FusionP{ near: _ } => unimplemented!(),
-            BotCommand::FusionS{ near: _ } => unimplemented!(),
+            BotCommand::FusionP{ near } => {
+                let n = *near;
+                let cf = c.add(n);
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+            },
+            BotCommand::FusionS{ near } => {
+                let n = *near;
+                let cf = c.add(n);
+                if !self.matrix.is_valid_coord(&cf) {
+                    return Err(Error::MoveOutOfBounds{c: cf})
+                }
+            },
             BotCommand::GFill{ near: _, far: _ } => unimplemented!(),
             BotCommand::GVoid{ near: _, far: _ } => unimplemented!(),
         }
@@ -223,8 +235,6 @@ impl State {
     }
 
     pub fn perform_mut(&mut self, bid: &Bid, cmd: &BotCommand) {
-        let c = self.bots.get(&bid).unwrap().pos;
-
         match cmd {
             BotCommand::Halt => {
                 self.bots.remove(&bid);
@@ -241,6 +251,8 @@ impl State {
                 };
             },
             BotCommand::SMove{ long } => {
+                let c = self.bots.get(&bid).unwrap().pos;
+
                 let d = long.to_coord_diff();
                 let cf = c.add(d);
 
@@ -248,6 +260,8 @@ impl State {
                 self.energy += 2 * d.l_1_norm();
             },
             BotCommand::LMove{ short1, short2 } => {
+                let c = self.bots.get(&bid).unwrap().pos;
+
                 let d1 = short1.to_coord_diff();
                 let d2 = short2.to_coord_diff();
 
@@ -258,6 +272,8 @@ impl State {
                 self.energy += 2 * (d1.l_1_norm() + 2 + d2.l_1_norm());
             },
             BotCommand::Fill{ near } => {
+                let c = self.bots.get(&bid).unwrap().pos;
+
                 let n = *near;
                 let cf = c.add(n);
 
@@ -270,6 +286,8 @@ impl State {
                 }
             },
             BotCommand::Void{ near } => {
+                let c = self.bots.get(&bid).unwrap().pos;
+
                 let n = *near;
                 let cf = c.add(n);
 
@@ -282,6 +300,8 @@ impl State {
                 }
             },
             BotCommand::Fission{ near, split_m } => {
+                let c = self.bots.get(&bid).unwrap().pos;
+
                 let n = *near;
                 let cf = c.add(n);
 
@@ -299,8 +319,30 @@ impl State {
                 self.bots.insert(new_bid, new_bot);
                 self.energy += 24;
             },
-            BotCommand::FusionP{ near: _ } => unimplemented!(),
-            BotCommand::FusionS{ near: _ } => unimplemented!(),
+            BotCommand::FusionP{ near } => {
+                let c = self.bots.get(&bid).unwrap().pos;
+
+                let n = *near;
+                let cf = c.add(n);
+
+                let mut other_bid = *bid;
+                let mut seeds: Vec<Bid> = vec![];
+                for (bid, secondary) in &self.bots {
+                    if secondary.pos == cf {
+                        other_bid = *bid;
+                        seeds = vec![other_bid];
+                        seeds.append(&mut secondary.seeds.to_vec());
+                        break;
+                    }
+                }
+                if other_bid != *bid {
+                    self.bots.get_mut(&bid).unwrap().seeds.append(&mut seeds);
+                    self.bots.get_mut(&bid).unwrap().seeds.sort();
+                    self.bots.remove(&other_bid);
+                    self.energy -= 24;
+                }
+            },
+            BotCommand::FusionS{ near: _ } => {}, /* Everything is done by FusionP cmd */
             BotCommand::GFill{ near: _, far: _ } => unimplemented!(),
             BotCommand::GVoid{ near: _, far: _ } => unimplemented!(),
         }
