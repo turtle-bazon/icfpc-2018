@@ -136,7 +136,8 @@ fn run() -> Result<(), Error> {
     let mut f = File::open(&trace_file).map_err(Error::Io)?;
     let mut buffer = Vec::new();
     f.read_to_end(&mut buffer).map_err(Error::Io)?;
-    let mut cmds = kernel::cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
+    let commands = kernel::cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
+    let mut cmd_iter = commands.into_iter();
 
     let mut state = kernel::state::State::new(matrix, vec![]);
 
@@ -351,7 +352,7 @@ fn run() -> Result<(), Error> {
             match key {
                 Key::Q => process::exit(0),
                 Key::Return => {
-                    state.step_mut(&mut cmds);
+                    state.step_mut(&mut cmd_iter);
                 },
                 _ => {},
             };
