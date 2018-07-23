@@ -11,7 +11,6 @@ use super::super::{
     state::{
         Bid,
         Bot,
-        Harmonics,
     },
     router::rtt,
 };
@@ -26,6 +25,7 @@ pub enum Error {
     GlobalTicksLimitExceeded { ticks: usize, voxels_to_do: usize, },
     NoRouteToVoidDest { start: Coord, finish: Coord, region: Region, },
     NoRouteToFillDest { start: Coord, finish: Coord, region: Region, },
+    HarmonicsLockPoisoned { lock_owner: Bid, lock_switcher: Bid, },
 }
 
 pub struct Config {
@@ -81,7 +81,7 @@ pub fn solve_rng<R>(
 
     let mut ticks_count = 0;
     let mut work_complete = false;
-    let mut harmonics = Harmonics::Low;
+    let mut harmonics_lock = HighHarmonicsLock::Free;
     loop {
         ticks_count += 1;
 
@@ -144,7 +144,7 @@ pub fn solve_rng<R>(
                     &env,
                     &current_model,
                     work_state,
-                    harmonics,
+                    harmonics_lock,
                     nanobots_count,
                     |region| if current_model.contains_filled(region) {
                         false
@@ -161,7 +161,7 @@ pub fn solve_rng<R>(
                     rng,
                 );
 
-            let mut interpret = |nanobot: &mut Nanobot, cmd: &BotCommand| match cmd {
+            let mut interpret = |nanobot: &mut Nanobot, cmd: &BotCommand| Ok(match cmd {
                 &BotCommand::Halt |
                 &BotCommand::Wait |
                 &BotCommand::FusionP{ .. } |
@@ -172,9 +172,16 @@ pub fn solve_rng<R>(
                 &BotCommand::Fission { .. } =>
                     nanobots_count += 1,
                 &BotCommand::Flip =>
-                    harmonics = match harmonics {
-                        Harmonics::Low => Harmonics::High,
-                        Harmonics::High => Harmonics::Low,
+                    harmonics_lock = match harmonics_lock {
+                        HighHarmonicsLock::Free =>
+                            HighHarmonicsLock::Locked { owner: nanobot.bid, },
+                        HighHarmonicsLock::Locked { owner, } if owner == nanobot.bid =>
+                            HighHarmonicsLock::Free,
+                        HighHarmonicsLock::Locked { owner, } =>
+                            return Err(Error::HarmonicsLockPoisoned {
+                                lock_owner: owner,
+                                lock_switcher: nanobot.bid,
+                            }),
                     },
                 &BotCommand::SMove { ref long } => {
                     let move_diff = long.to_coord_diff();
@@ -208,18 +215,18 @@ pub fn solve_rng<R>(
                     let void_coord = nanobot.bot.pos.add(near);
                     current_model.set_void(&void_coord);
                 },
-            };
+            });
 
             match implement_result {
                 PlanResult::DoAndPerish(cmd) =>
                     script.push(cmd),
                 PlanResult::Regular { mut nanobot, cmd, } => {
-                    interpret(&mut nanobot, &cmd);
+                    interpret(&mut nanobot, &cmd).map_err(|e| (e, script.clone()))?;
                     script.push(cmd);
                     next_nanobots.push(nanobot);
                 },
                 PlanResult::Spawn { mut parent, child, cmd, } => {
-                    interpret(&mut parent, &cmd);
+                    interpret(&mut parent, &cmd).map_err(|e| (e, script.clone()))?;
                     script.push(cmd);
                     next_nanobots.push(parent);
                     next_nanobots.push(child);
@@ -279,6 +286,12 @@ enum WorkState {
     },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum HighHarmonicsLock {
+    Free,
+    Locked { owner: Bid, },
+}
+
 enum PlanResult {
     DoAndPerish(BotCommand),
     Regular { nanobot: Nanobot, cmd: BotCommand, },
@@ -299,7 +312,7 @@ impl Nanobot {
         env: &Env,
         current_model: &Matrix,
         work_state: WorkState,
-        harmonics: Harmonics,
+        harmonics_lock: HighHarmonicsLock,
         nanobots_count: usize,
         is_passable: FP,
         commands_buf: &mut Vec<(Coord, BotCommand)>,
@@ -309,12 +322,22 @@ impl Nanobot {
     )
         -> PlanResult where FP: Fn(&Region) -> bool, R: Rng,
     {
+        match harmonics_lock {
+            HighHarmonicsLock::Free =>
+                (),
+            HighHarmonicsLock::Locked { owner, } if owner == self.bid =>
+                (),
+            HighHarmonicsLock::Locked { .. } =>
+                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, },
+        }
         match work_state {
             WorkState::InProgress =>
                 (),
             WorkState::Completed { nanobots_left, slave_pick, } =>
-                match harmonics {
-                    Harmonics::Low =>
+                match harmonics_lock {
+                    HighHarmonicsLock::Locked { .. } =>
+                        return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
+                    HighHarmonicsLock::Free =>
                         if self.bot.pos == INIT_POS {
                             // i am the master
                             return if nanobots_left == 1 {
@@ -337,8 +360,6 @@ impl Nanobot {
                                     self.plan = Plan::HeadingFor { target: INIT_POS, attempts: 0, goal: Goal::Park },
                             };
                         },
-                    Harmonics::High =>
-                        return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
                 },
         }
         loop {
@@ -374,21 +395,21 @@ impl Nanobot {
                     }
 
                     // take a job if any
-                    let maybe_void_index = match harmonics {
-                        Harmonics::Low =>
+                    let maybe_void_index = match harmonics_lock {
+                        HighHarmonicsLock::Free =>
                             void_towers.iter().position(|region| coord::all_voxels_are_grounded(
                                 current_model.filled_voxels().cloned().filter(|voxel| !region.contains(voxel)).collect())),
-                        Harmonics::High =>
+                        HighHarmonicsLock::Locked { .. } =>
                             if void_towers.is_empty() {
                                 None
                             } else {
                                 Some(rng.gen_range(0, void_towers.len()))
                             },
                     };
-                    let maybe_fill_index = match harmonics {
-                        Harmonics::Low =>
+                    let maybe_fill_index = match harmonics_lock {
+                        HighHarmonicsLock::Free =>
                             fill_towers.iter().position(|region| current_model.will_be_grounded(&region.min)),
-                        Harmonics::High =>
+                        HighHarmonicsLock::Locked { .. } =>
                             if fill_towers.is_empty() {
                                 None
                             } else {
@@ -435,21 +456,21 @@ impl Nanobot {
                         let safe_to_remove =
                             // current_model.filled_near_neighbours(&job_coord).all(|coord| current_model.is_grounded(&coord));
                             coord::all_voxels_are_grounded(current_model.filled_voxels().cloned().filter(|voxel| voxel != &job_coord).collect());
-                        match harmonics {
-                            Harmonics::Low if safe_to_remove =>
+                        match harmonics_lock {
+                            HighHarmonicsLock::Free if safe_to_remove =>
                                 return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, },
-                            Harmonics::Low =>
+                            HighHarmonicsLock::Free =>
                                 return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
-                            Harmonics::High =>
+                            HighHarmonicsLock::Locked { .. } =>
                                 return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, },
                         }
                     } else if tower.min == tower.max {
-                        match harmonics {
+                        match harmonics_lock {
                             // get next tower
-                            Harmonics::Low =>
+                            HighHarmonicsLock::Free =>
                                 self.plan = Plan::HeadingFor { goal: Goal::Wander, target, attempts: 0, },
                             // turn on gravity
-                            Harmonics::High =>
+                            HighHarmonicsLock::Locked { .. } =>
                                 return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
                         }
                     } else {
