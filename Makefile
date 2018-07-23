@@ -35,4 +35,37 @@ ${BUILD_NAME}.zip: $(TRACES)
 ${BUILD_NAME}.zip.hash: ${BUILD_NAME}.zip
 	shasum -a 256 $< > $@
 
-.PHONY: all submission check test build
+
+MAKE_PID := $(shell echo $$PPID)
+JOB_FLAG := $(filter -j%, $(subst -j ,-j,$(shell ps T | grep "^\s*$(MAKE_PID).*$(MAKE)")))
+JOBS     := $(subst -j,,$(JOB_FLAG))
+ifeq ($(JOBS),)
+JOBS := 1
+endif
+
+random_swarm:
+	cd rust/scorer && cargo build --release
+	cd rust/random_swarm && cargo build --release
+	-find traces/ -name 'FA00*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/score-fa.sh
+	-find traces/ -name 'FD00*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/score-fd.sh
+	-find traces/ -name 'FR00*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/score-fr.sh
+	-find traces/ -name 'FA0[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/score-fa.sh
+	-find traces/ -name 'FD0[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/score-fd.sh
+	-find traces/ -name 'FR0[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/score-fr.sh
+	-find traces/ -name 'FA[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/score-fa.sh
+	-find traces/ -name 'FD[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/score-fd.sh
+	-find traces/ -name 'FR[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/score-fr.sh
+
+validate:
+	cd rust/scorer && cargo build --release
+	find traces/ -name 'FA00*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fa.sh
+	find traces/ -name 'FD00*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fd.sh
+	find traces/ -name 'FR00*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fr.sh
+	find traces/ -name 'FA0[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fa.sh
+	find traces/ -name 'FD0[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fd.sh
+	find traces/ -name 'FR0[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fr.sh
+	find traces/ -name 'FA[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fa.sh
+	find traces/ -name 'FD[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fd.sh
+	find traces/ -name 'FR[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fr.sh
+
+.PHONY: all submission check test build random_swarm validate

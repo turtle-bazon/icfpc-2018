@@ -207,7 +207,19 @@ impl State {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg2})
                 }
 
-                Ok((volatile_reg, Some(volatile_reg2)))
+                match (short1, short2) {
+                    (LinearCoordDiff::Short{axis:axis1, value:value1}, LinearCoordDiff::Short{axis:axis2, value:value2}) =>
+                        if axis1 == axis2 {
+                            let d = LinearCoordDiff::Short { axis: *axis1, value: value1 + value2 }.to_coord_diff();
+                            let cf = c.add(d);
+
+                            Ok((Region::from_corners(&c, &cf), None))
+                        } else {
+                            Ok((volatile_reg, Some(volatile_reg2)))
+                        },
+                    (_,_) => panic!("Unexpected diff!"),
+                }
+
             },
             BotCommand::Fill{ near } => {
                 let n = *near;
