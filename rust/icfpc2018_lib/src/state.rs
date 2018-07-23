@@ -516,7 +516,7 @@ impl State {
     }
 
 
-    
+
     pub fn stateless_step(&mut self, commands: &Vec<BotCommand>, next_command: &mut usize) -> Result<(), Error> {
         /* check there are enough commands */
         let bids: Vec<Bid> = self.bots.keys().cloned().collect();
@@ -526,7 +526,7 @@ impl State {
             self.perform_mut(bid, &cmd);
         }
         *next_command += len;
-        
+
         Ok(())
     }
 
@@ -568,7 +568,7 @@ impl State {
             }
         }
     }
-    
+
 }
 
 #[derive(Debug,Copy,Clone)]

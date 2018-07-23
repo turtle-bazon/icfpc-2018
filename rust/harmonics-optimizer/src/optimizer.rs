@@ -12,6 +12,7 @@ use kernel::{
     },
     state::{
         State,
+        Harmonics,
         WellformedStatus,
     },
 };
@@ -50,6 +51,15 @@ impl HarmonicsOptimizer {
         let mut optimizer = HarmonicsOptimizer::new();
 
         loop {
+            match state.harmonics {
+                Harmonics::Low => {},
+                Harmonics::High => {
+                    if state.matrix.all_voxels_are_grounded() {
+                        /* Switch to Low */
+                    }
+                },
+
+            }
             optimizer.last_step_commands = Vec::with_capacity(state.bots.len());
 
             let res = state.step_mut(&mut optimizer);
