@@ -6,7 +6,6 @@ extern crate icfpc2018_lib;
 
 use std::{io::{self, Write}, fs, process};
 use clap::Arg;
-use rand::{SeedableRng, prng::XorShiftRng};
 
 use icfpc2018_lib::{
     coord::{
@@ -86,21 +85,21 @@ fn run() -> Result<(), Error> {
 
     info!("Everything is ready, start solving");
 
-    let mut rng: XorShiftRng =
-        SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-
     let solve_result = random_swarm::solve_rng(
         source_model,
         target_model,
         config,
-        &mut rng,
+        &mut rand::thread_rng(),
     );
 
     let script = match solve_result {
         Ok(script) =>
             script,
-        Err(random_swarm::Error::GlobalTicksLimitExceeded { ticks, script_so_far, }) => {
-            warn!("global ticks limit exceeded ({}), saving script of {} commands", ticks, script_so_far.len());
+        Err(random_swarm::Error::GlobalTicksLimitExceeded { ticks, script_so_far, voxels_to_do, }) => {
+            warn!("global ticks limit exceeded ({}), {} voxels undone, saving script of {} commands",
+                  ticks,
+                  script_so_far.len(),
+                  voxels_to_do);
             script_so_far
         },
         Err(error) =>
