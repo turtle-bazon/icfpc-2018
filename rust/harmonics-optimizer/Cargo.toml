@@ -1,0 +1,8 @@
+[package]
+name = "harmonics-optimizer"
+version = "0.1.0"
+authors = ["Gleb Golubitsky <sectoid@gnolltech.org>"]
+
+[dependencies]
+icfpc2018_lib = { path = "../icfpc2018_lib" }
+clap = "2.31"
