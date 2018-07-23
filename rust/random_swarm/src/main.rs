@@ -98,8 +98,8 @@ fn run() -> Result<(), Error> {
         Err(random_swarm::Error::GlobalTicksLimitExceeded { ticks, script_so_far, voxels_to_do, }) => {
             warn!("global ticks limit exceeded ({}), {} voxels undone, saving script of {} commands",
                   ticks,
-                  script_so_far.len(),
-                  voxels_to_do);
+                  voxels_to_do,
+                  script_so_far.len());
             script_so_far
         },
         Err(error) =>

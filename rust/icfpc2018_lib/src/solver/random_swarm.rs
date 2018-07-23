@@ -72,11 +72,6 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
         ticks_count += 1;
         if ticks_count >= env.config.global_ticks_limit {
             let mut voxels_to_do = 0;
-
-            println!(" ;; source model filled voxels = {}", env.source_model.filled_voxels().count());
-            println!(" ;; target model filled voxels = {}", env.target_model.filled_voxels().count());
-            println!(" ;; current model filled voxels = {}", current_model.filled_voxels().count());
-
             for voxel in env.source_model.filled_voxels() {
                 if current_model.is_filled(voxel) && !env.target_model.is_filled(voxel) {
                     voxels_to_do += 1;
