@@ -193,8 +193,8 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
 struct Env {
     source_model: Matrix,
     target_model: Matrix,
-    _source_kd: kd::KdTree,
-    _target_kd: kd::KdTree,
+    source_kd: kd::KdTree,
+    target_kd: kd::KdTree,
     config: Config,
 }
 
@@ -205,8 +205,8 @@ impl Env {
         Env {
             source_model,
             target_model,
-            _source_kd: source_kd,
-            _target_kd: target_kd,
+            source_kd,
+            target_kd,
             config,
         }
     }
@@ -298,10 +298,83 @@ impl Nanobot {
                 Plan::HeadingFor { target, .. } if target == self.bot.pos => {
                     // reached a target
 
+                    // check if there is a job nearby
+                    for neighbour_coord in target.get_neighbours() {
+                        let current_filled = current_model.is_filled(&neighbour_coord);
+                        let source_filled = env.source_model.is_filled(&neighbour_coord);
+                        let target_filled = env.target_model.is_filled(&neighbour_coord);
 
-                    //
+                        if current_filled && source_filled && !target_filled {
+                            // "void" job
+                            return PlanResult::Regular {
+                                nanobot: self,
+                                cmd: BotCommand::Void { near: neighbour_coord.diff(&target), },
+                            };
+                        }
+                        if !current_filled && target_filled {
+                            // "fill" job
+                            return PlanResult::Regular {
+                                nanobot: self,
+                                cmd: BotCommand::Fill { near: neighbour_coord.diff(&target), },
+                            };
+                        }
+                    }
 
-                    unimplemented!()
+                    // locate and move to a job to perform
+                    let mut nearest_voids = env.source_kd.nearest(&target);
+                    let mut nearest_fills = env.target_kd.nearest(&target);
+                    let mut maybe_void = nearest_voids.next();
+                    let mut maybe_fill = nearest_fills.next();
+                    let mut shuffle_coords = Vec::new();
+                    loop {
+                        let nearest_job = loop {
+                            match (maybe_void.take(), maybe_fill.take()) {
+                                (None, None) =>
+                                    break None,
+                                (Some((job, _)), None) => {
+                                    maybe_void = nearest_voids.next();
+                                    break Some(job);
+                                },
+                                (None, Some((job, _))) => {
+                                    maybe_fill = nearest_fills.next();
+                                    break Some(job);
+                                },
+                                (Some((job_void, dist_void)), Some((job_fill, dist_fill))) =>
+                                    if dist_void < dist_fill {
+                                        maybe_void = nearest_voids.next();
+                                        break Some(job_void);
+                                    } else {
+                                        maybe_fill = nearest_fills.next();
+                                        break Some(job_fill);
+                                    },
+                            }
+                        };
+                        if let Some(job) = nearest_job {
+                            shuffle_coords.extend(job.get_neighbours());
+                            rng.shuffle(&mut shuffle_coords);
+                            for possible_target in shuffle_coords.drain(..) {
+                                let route_result =
+                                    route_and_step(&target, &possible_target, current_model, &is_passable, commands_buf, env.config.rtt_limit, rng);
+                                match route_result {
+                                    Ok(Some(moving_cmd)) => {
+                                        self.plan = Plan::HeadingFor { target: possible_target, attempts: 0, };
+                                        return PlanResult::Regular { nanobot: self, cmd: moving_cmd, };
+                                    },
+                                    Ok(None) =>
+                                        (),
+                                    Err(error) =>
+                                        return PlanResult::Error(error),
+                                }
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    // no job could be found, go somewhere
+                    self.plan = Plan::HeadingFor {
+                        target: pick_random_coord(current_model.dim() as isize, rng),
+                        attempts: 0,
+                    };
                 },
                 Plan::HeadingFor { attempts, .. } if attempts > env.config.route_attempts_limit =>
                     return PlanResult::Error(Error::RouteAttempsLimitExceeded(attempts)),
@@ -563,4 +636,38 @@ mod test {
             ],
         );
     }
+
+    #[test]
+    fn solve_void_and_halt() {
+        use rand::{SeedableRng, prng::XorShiftRng};
+        let mut rng: XorShiftRng =
+            SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let source_model = Matrix::from_iter(Resolution(3), vec![Coord { x: 1, y: 1, z: 1, }]);
+        let target_model = Matrix::from_iter(Resolution(3), vec![]);
+        let script = super::solve_rng(
+            source_model,
+            target_model,
+            super::Config {
+                init_bots: vec![],
+                rtt_limit: 64,
+                route_attempts_limit: 16,
+                global_ticks_limit: 100,
+            },
+            &mut rng,
+        ).unwrap();
+        assert_eq!(
+            script,
+            vec![
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 2 } },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
+                },
+                BotCommand::Void { near: CoordDiff(Coord { x: 1, y: 0, z: 1 }) },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: -1 } },
+                BotCommand::Halt
+            ],
+        );
+    }
+
 }
