@@ -99,7 +99,7 @@ fn main() -> Result<(),Error> {
                 }
             }
 
-            println!("SUCCESS");
+            println!("SUCCESS. FINAL ENERGY {}", state.energy);
             Ok(())
         }
     }

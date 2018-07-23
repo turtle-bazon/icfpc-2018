@@ -4,6 +4,7 @@ version = "0.6.0"
 authors = ["Alexey Voznyuk <me@swizard.info>"]
 
 [dependencies]
+log = "0.4"
 rtt = "0.4"
 rand = "0.5"
 kdvtree = "0.8"

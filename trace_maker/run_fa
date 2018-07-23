@@ -1,0 +1,1 @@
+for i in `ls -S -r TO_FLIP_FA`; do echo $i; ./trace-gravitizer -t TO_FLIP_FA/$i -f FLIP_DONE/$i; done

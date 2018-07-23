@@ -233,7 +233,11 @@ fn main() -> Result<(),Error> {
              .display_order(4)
              .short("r")
              .long("reverse")
-             .help("Reverse"));
+             .help("Reverse"))
+        .arg(Arg::with_name("flip")
+             .display_order(5)
+             .long("no-flip")
+             .help("No flip"));
 
     let matches = app.get_matches();
     let original = value_t!(matches, "original", String).map_err(Error::Args)?;
@@ -241,6 +245,7 @@ fn main() -> Result<(),Error> {
     let mut bots_count = value_t!(matches, "n", usize).map_err(Error::Args)?;
     let reverse = matches.is_present("reverse");
 
+    let flip = !matches.is_present("flip");
     
     let matrix = kernel::model::read_model_file(&original).map_err(Error::ModelReadError)?;
     let mut iter = matrix.filled_voxels();
@@ -393,9 +398,11 @@ fn main() -> Result<(),Error> {
             asc.push(c);
         }
     }
-    
-    for _ in 1 .. n_bots { asc.push(BotCommand::wait().unwrap()); }
-    asc.push(BotCommand::flip().unwrap());
+
+    if flip {
+        for _ in 1 .. n_bots { asc.push(BotCommand::wait().unwrap()); }
+        asc.push(BotCommand::flip().unwrap());
+    }
     
     /* proc */
     if reverse {
@@ -441,8 +448,10 @@ fn main() -> Result<(),Error> {
     }
 
     /* join */
-    asc.push(BotCommand::flip().unwrap());
-    for _ in 1 .. n_bots { asc.push(BotCommand::wait().unwrap()); }
+    if flip {
+        asc.push(BotCommand::flip().unwrap());
+        for _ in 1 .. n_bots { asc.push(BotCommand::wait().unwrap()); }
+    }
     let mut n = bot_config.len()-1;
     while n>0 { 
         for c in Translator::new(Coord{x:stripes[bot_config[n].first].x,y:0,z:0},vec![Cmd::XMove(stripes[bot_config[n-1].first].x+1)].into_iter()) {

@@ -1,0 +1,1 @@
+for i in `ls -S -r TO_FLIP_FD`; do echo $i; ./trace-gravitizer -m ../problems/`echo $i | sed "s/\.nbt/_src.mdl/"` -t TO_FLIP_FD/$i -f FLIP_DONE/$i; done

@@ -3,6 +3,7 @@ extern crate rand;
 extern crate kdvtree;
 extern crate bit_vec;
 extern crate pathfinding;
+#[macro_use] extern crate log;
 #[macro_use] extern crate itertools;
 
 pub mod solver;
