@@ -68,4 +68,17 @@ validate:
 	find traces/ -name 'FD[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fd.sh
 	find traces/ -name 'FR[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/validate-fr.sh
 
-.PHONY: all submission check test build random_swarm validate
+gravitizer:
+	cd rust/scorer && cargo build --release
+	cd rust/trace-gravitizer && cargo build --release
+	-find traces/ -name 'FA00*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/gravitizer-fa.sh
+	-find traces/ -name 'FD00*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/gravitizer-fd.sh
+	-find traces/ -name 'FR00*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/gravitizer-fr.sh
+	-find traces/ -name 'FA0[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/gravitizer-fa.sh
+	-find traces/ -name 'FD0[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/gravitizer-fd.sh
+	-find traces/ -name 'FR0[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/gravitizer-fr.sh
+	-find traces/ -name 'FA[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/gravitizer-fa.sh
+	-find traces/ -name 'FD[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/gravitizer-fd.sh
+	-find traces/ -name 'FR[1-9]*.nbt' | sort | xargs -P ${JOBS} -n 1 tools/gravitizer-fr.sh
+
+.PHONY: all submission check test build random_swarm validate gravitizer
