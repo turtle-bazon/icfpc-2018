@@ -1,5 +1,6 @@
 extern crate gfx_core;
 extern crate env_logger;
+extern crate piston;
 extern crate piston_window;
 extern crate gfx_debug_draw;
 extern crate gfx_text;
@@ -18,6 +19,8 @@ use std::{
 };
 
 use clap::Arg;
+use piston::input::*;
+use piston::event_loop::*;
 use piston_window::{
     OpenGL,
     PistonWindow,
@@ -178,7 +181,7 @@ fn run() -> Result<(), Error> {
         Filling,
     }
 
-    let mut script = Vec::new();
+    //let mut script = Vec::new();
     let mut filled_matrix = Matrix::new(Resolution(state.matrix.dim() as isize));
     let mut nanobot = Coord { x: 0, y: 0, z: 0, };
     let mut cursor = Coord { x: 1, y: 0, z: 1, };
@@ -186,7 +189,176 @@ fn run() -> Result<(), Error> {
     let mut last_route: Option<Vec<Coord>> = None;
     let mut show_model = true;
 
-    loop {
+    while let Some(event) = window.next() {
+        orbit_zoom_camera.event(&event);
+        if let Some(args) = event.render_args() {
+            window.draw_3d(&event, |win| {
+                win.encoder.clear(&win.output_color, [1.0, 1.0, 1.0, 1.0]);
+                win.encoder.clear_depth(&win.output_stencil, 1.0);
+
+                let camera_view = orbit_zoom_camera.camera(args.ext_dt).orthogonal();
+
+                let camera_projection = model_view_projection(
+                    model,
+                    camera_view,
+                    projection,
+                );
+
+                // Draw axes
+                debug_renderer.draw_line([0.0, 0.0, 0.0], [5.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
+                debug_renderer.draw_line([0.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 1.0, 0.0, 1.0]);
+                debug_renderer.draw_line([0.0, 0.0, 0.0], [0.0, 0.0, -5.0], [0.0, 0.0, 1.0, 1.0]);
+
+                debug_renderer.draw_text_at_position("X", [6.0, 0.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
+                debug_renderer.draw_text_at_position("Y", [0.0, 6.0, 0.0], [0.0, 1.0, 0.0, 1.0]);
+                debug_renderer.draw_text_at_position("Z", [0.0, 0.0, -6.0], [0.0, 0.0, 1.0, 1.0]);
+
+                {
+                    let dim = state.matrix.dim() as f32;
+
+                    // Draw floor
+                    //voxel_renderer.draw_voxel([0.0, 0.0, 0.0], [dim, -0.5, dim], [0.33, 0.33, 0.33, 0.5]);
+                    for i in 0 .. state.matrix.dim() {
+                        debug_renderer.draw_line([i as f32, 0.0, 0.0], [i as f32, 0.0, -dim], [0.0, 0.0, 0.0, 1.0]);
+                        debug_renderer.draw_line([0.0, 0.0, - (i as f32)], [dim, 0.0, -(i as f32)], [0.0, 0.0, 0.0, 1.0]);
+                    }
+
+                    // Draw last route
+                    if let Some(route) = last_route.as_ref() {
+                        for mark in route.iter() {
+                            voxel_renderer.draw_voxel(
+                                [mark.x as f32 + 0.3, mark.y as f32 + 0.3, mark.z as f32 + 0.3],
+                                [mark.x as f32 + 0.7, mark.y as f32 + 0.7, mark.z as f32 + 0.7],
+                                [0.0, 0.5, 0.0, 1.0],
+                            );
+                        }
+                    }
+
+                    let mut draw_cube_mesh = |min: [f32; 3], max: [f32; 3], color| {
+                        // front
+                        debug_renderer.draw_line([min[0], min[1], -min[2]], [max[0], min[1], -min[2]], color);
+                        debug_renderer.draw_line([max[0], min[1], -min[2]], [max[0], max[1], -min[2]], color);
+                        debug_renderer.draw_line([max[0], max[1], -min[2]], [min[0], max[1], -min[2]], color);
+                        debug_renderer.draw_line([min[0], max[1], -min[2]], [min[0], min[1], -min[2]], color);
+                        // back
+                        debug_renderer.draw_line([min[0], min[1], -max[2]], [max[0], min[1], -max[2]], color);
+                        debug_renderer.draw_line([max[0], min[1], -max[2]], [max[0], max[1], -max[2]], color);
+                        debug_renderer.draw_line([max[0], max[1], -max[2]], [min[0], max[1], -max[2]], color);
+                        debug_renderer.draw_line([min[0], max[1], -max[2]], [min[0], min[1], -max[2]], color);
+                        // missing edges
+                        debug_renderer.draw_line([min[0], min[1], -min[2]], [min[0], min[1], -max[2]], color);
+                        debug_renderer.draw_line([max[0], min[1], -min[2]], [max[0], min[1], -max[2]], color);
+                        debug_renderer.draw_line([max[0], max[1], -min[2]], [max[0], max[1], -max[2]], color);
+                        debug_renderer.draw_line([min[0], max[1], -min[2]], [min[0], max[1], -max[2]], color);
+                    };
+
+                    // Draw bounding volume
+                    match state.harmonics {
+                      Harmonics::Low  => draw_cube_mesh([0.0, 0.0, 0.0], [dim, dim, dim], [0.0, 0.0, 0.0, 0.25]),
+                      Harmonics::High => draw_cube_mesh([0.0, 0.0, 0.0], [dim, dim, dim], [0.0, 0.0, 0.0, 1.0]),
+                    }
+
+                    // Draw model matrix
+                    if show_model {
+                        for voxel in state.matrix.filled_voxels() {
+                            if filled_matrix.is_filled(&voxel) {
+                                continue;
+                            }
+                            // draw voxel
+                            let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                            let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                            voxel_renderer.draw_voxel(min_point, max_point, [0.0, 1.0, 0.0, 1.0]);
+                            // draw mesh
+                            let position =
+                                [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                            draw_cube_mesh(position, vec3_add(position, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
+                        }
+                    }
+
+                    // Draw filled matrix
+                    /*for voxel in filled_matrix.filled_voxels() {
+                        // draw voxel
+                        let min_point = [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                        let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                        voxel_renderer.draw_voxel(min_point, max_point, [0.54, 0.27, 0.07, 1.0]);
+                        // draw mesh
+                        let position =
+                            [voxel.x as f32, voxel.y as f32, voxel.z as f32];
+                        draw_cube_mesh(position, vec3_add(position, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
+                    }*/
+
+                    // Draw cursor
+                    /*let cursor_color = match cursor_state {
+                        CursorState::Moving =>
+                            if filled_matrix.is_filled(&cursor) {
+                                [1.0, 0.0, 0.0, 1.0]
+                            } else {
+                                [0.0, 0.0, 1.0, 1.0]
+                            },
+                        CursorState::Filling =>
+                            if cursor.diff(&nanobot).is_near() && !filled_matrix.is_filled(&cursor) {
+                                [0.0, 1.0, 0.0, 1.0]
+                            } else {
+                                [1.0, 0.0, 0.0, 1.0]
+                            },
+                    };
+                    let min_point = [cursor.x as f32, cursor.y as f32, cursor.z as f32];
+                    let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                    voxel_renderer.draw_voxel(min_point, max_point, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);
+                    draw_cube_mesh(min_point, vec3_add(min_point, [1.0, 1.0, 1.0]), cursor_color);
+                    let x_proj_min = [0.0, min_point[1], min_point[2]];
+                    let x_proj_max = vec3_add(x_proj_min, [0.0, 1.0, 1.0]);
+                    voxel_renderer.draw_voxel(x_proj_min, x_proj_max, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);
+                    let y_proj_min = [min_point[0], 0.0, min_point[2]];
+                    let y_proj_max = vec3_add(y_proj_min, [1.0, 0.0, 1.0]);
+                    voxel_renderer.draw_voxel(y_proj_min, y_proj_max, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);
+                    let z_proj_min = [min_point[0], min_point[1], 0.0];
+                    let z_proj_max = vec3_add(z_proj_min, [1.0, 1.0, 0.0]);
+                    voxel_renderer.draw_voxel(z_proj_min, z_proj_max, [cursor_color[0], cursor_color[1], cursor_color[2], 0.5]);*/
+
+                    // Draw nanobots
+                    for (bid, bot) in state.bots.iter() {
+                        let min_point = [bot.pos.x as f32, bot.pos.y as f32, bot.pos.z as f32];
+                        let max_point = vec3_add(min_point, [1.0, 1.0, 1.0]);
+                        voxel_renderer.draw_voxel(min_point, max_point, [1.0, 1.0, 0.0, 1.0]);
+                        draw_cube_mesh(min_point, vec3_add(min_point, [1.0, 1.0, 1.0]), [0.0, 0.0, 0.0, 1.0]);
+                    }
+                }
+
+                /*let total = script.len();
+                let mut oi = 0;
+                for (i, cmd) in script.iter().enumerate() {
+                    if (i as isize) < (total as isize) - 10 {
+                        continue;
+                    }
+
+                    debug_renderer.draw_text_on_screen(
+                        &format!("{}: {:?}", i, cmd),
+                        [10, 10 + oi * 20],
+                        [0.0, 0.0, 0.0, 1.0],
+                    );
+                    oi += 1;
+                }*/
+
+                voxel_renderer.render(&mut win.encoder, &win.output_color, &win.output_stencil, camera_projection)
+                    .map_err(PistonError::VoxelRenderer);
+                debug_renderer.render(&mut win.encoder, &win.output_color, &win.output_stencil, camera_projection)
+                    .map_err(PistonError::DebugRendererRender);
+            });
+        };
+
+        if let Some(Button::Keyboard(key)) = event.press_args() {
+            match key {
+                Key::Q => process::exit(0),
+                Key::Return => {
+                    state.step_mut(&mut cmds);
+                },
+                _ => {},
+            };
+        };
+    }
+
+    /*loop {
         let event = if let Some(ev) = window.next() {
             ev
         } else {
@@ -446,5 +618,6 @@ fn run() -> Result<(), Error> {
             _ =>
                 (),
         }
-    }
+    }*/
+    Ok(())
 }
