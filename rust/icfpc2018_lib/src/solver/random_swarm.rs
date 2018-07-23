@@ -720,4 +720,123 @@ mod test {
             ],
         );
     }
+
+    #[test]
+    fn solve_fill_tower_and_halt() {
+        use rand::{SeedableRng, prng::XorShiftRng};
+        let mut rng: XorShiftRng =
+            SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let source_model = Matrix::from_iter(Resolution(3), vec![]);
+        let target_model = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 1, },
+            Coord { x: 1, y: 1, z: 1, },
+            Coord { x: 1, y: 2, z: 1, },
+        ]);
+        let script = super::solve_rng(
+            source_model,
+            target_model,
+            super::Config {
+                init_bots: vec![],
+                rtt_limit: 64,
+                route_attempts_limit: 16,
+                global_ticks_limit: 100,
+            },
+            &mut rng,
+        ).unwrap();
+        assert_eq!(
+            script,
+            vec![
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 2 } },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 1, y: 0, z: -1 }) },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
+                },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 1, y: 0, z: 1 }) },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
+                },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: 0, z: 1 }) },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
+                },
+                BotCommand::Halt,
+            ],
+        );
+    }
+
+    #[test]
+    fn solve_rebuild_tower_and_halt() {
+        use rand::{SeedableRng, prng::XorShiftRng};
+        let mut rng: XorShiftRng =
+            SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let source_model = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 1, },
+            Coord { x: 1, y: 1, z: 1, },
+            Coord { x: 1, y: 2, z: 1, },
+        ]);
+        let target_model = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 1, },
+            Coord { x: 1, y: 1, z: 1, },
+            Coord { x: 0, y: 1, z: 1, },
+            Coord { x: 2, y: 1, z: 1, },
+            Coord { x: 1, y: 1, z: 0, },
+            Coord { x: 1, y: 1, z: 2, },
+        ]);
+        let script = super::solve_rng(
+            source_model,
+            target_model,
+            super::Config {
+                init_bots: vec![],
+                rtt_limit: 64,
+                route_attempts_limit: 16,
+                global_ticks_limit: 100,
+            },
+            &mut rng,
+        ).unwrap();
+        assert_eq!(
+            script,
+            vec![
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 2 } },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: 1, z: -1 }) },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 1, y: 1, z: 0 }) },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
+                },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: 1, z: 0 }) },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 2 },
+                },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: 1, z: -1 }) },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
+                },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 1 },
+                },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
+                },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: 2 },
+                },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } },
+                BotCommand::Void { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: -2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
+                },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: -2 } },
+                BotCommand::Halt,
+            ],
+        );
+    }
 }
