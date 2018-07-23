@@ -295,8 +295,12 @@ impl Nanobot {
                     let target = pick_random_coord(current_model.dim() as isize, rng);
                     self.plan = Plan::HeadingFor { target, attempts: 0, };
                 },
-                Plan::HeadingFor { ref target, .. } if target == &self.bot.pos => {
+                Plan::HeadingFor { target, .. } if target == self.bot.pos => {
                     // reached a target
+
+
+                    //
+
                     unimplemented!()
                 },
                 Plan::HeadingFor { attempts, .. } if attempts > env.config.route_attempts_limit =>
