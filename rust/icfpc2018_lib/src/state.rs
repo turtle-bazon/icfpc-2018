@@ -256,7 +256,7 @@ impl State {
                     return Err(Error::MoveRegionIsNotVoid{r: Region::from_corners(&cf, &cf)})
                 }
 
-                Ok((Region::from_corners(&c, &cf), None))
+                Ok((Region::from_corners(&c, &c), Some(Region::from_corners(&cf, &cf))))
             }
             BotCommand::FusionP{ near } => {
                 let n = *near;
@@ -436,7 +436,7 @@ impl State {
         let cmds: Vec<BotCommand> = cmd_iter.take(bids.len()).collect();
 
         /* check command preconditions & end commands interference */
-        let mut volatile: Vec<Region> = vec![];
+        let mut volatile: Vec<Region> = Vec::with_capacity(bids.len() * 2);
         let mut bid_iter = bids.iter();
         let mut cmd_iter = cmds.iter();
         loop {
