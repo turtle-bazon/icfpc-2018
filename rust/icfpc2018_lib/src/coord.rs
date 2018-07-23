@@ -284,11 +284,7 @@ impl Matrix {
             .filter(move |c| self.is_filled(c))
     }
 
-    pub fn is_grounded(&self, coord: &Coord) -> bool {
-        if !self.is_filled(coord) {
-            return false;
-        }
-
+    pub fn will_be_grounded(&self, coord: &Coord) -> bool {
         use pathfinding::directed::astar;
 
         astar::astar(
@@ -300,29 +296,19 @@ impl Matrix {
         ).is_some()
     }
 
+    pub fn is_grounded(&self, coord: &Coord) -> bool {
+        if !self.is_filled(coord) {
+            return false;
+        }
+        self.will_be_grounded(coord)
+    }
+
     pub fn filled_voxels(&self) -> impl Iterator<Item = &Coord> {
         self.filled.iter()
     }
 
     pub fn all_voxels_are_grounded(&self) -> bool {
-        let mut voxels_pending = self.filled.clone();
-        while let Some(&voxel) = voxels_pending.iter().next() {
-            let mut queue = vec![voxel];
-            let mut grounded = false;
-            while let Some(voxel) = queue.pop() {
-                if !voxels_pending.remove(&voxel) {
-                    continue;
-                }
-                if voxel.y == 0 {
-                    grounded = true;
-                }
-                queue.extend(self.filled_near_neighbours(&voxel));
-            }
-            if !grounded {
-                return false;
-            }
-        }
-        true
+        all_voxels_are_grounded(self.filled.clone())
     }
 
     pub fn is_valid_coord(&self, c: &Coord) -> bool {
@@ -335,6 +321,26 @@ impl Matrix {
     pub fn equals(&self, other: &Matrix) -> bool {
         &self.field == &other.field
     }
+}
+
+pub fn all_voxels_are_grounded(mut voxels_pending: HashSet<Coord>) -> bool {
+    while let Some(&voxel) = voxels_pending.iter().next() {
+        let mut queue = vec![voxel];
+        let mut grounded = false;
+        while let Some(voxel) = queue.pop() {
+            if !voxels_pending.remove(&voxel) {
+                continue;
+            }
+            if voxel.y == 0 {
+                grounded = true;
+            }
+            queue.extend(voxel.near_neighbours().filter(|c| voxels_pending.contains(c)))
+        }
+        if !grounded {
+            return false;
+        }
+    }
+    true
 }
 
 use std::fmt;
