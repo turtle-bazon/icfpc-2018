@@ -41,7 +41,7 @@ impl LinearCoordDiff {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Region {
     pub min: Coord,
     pub max: Coord,

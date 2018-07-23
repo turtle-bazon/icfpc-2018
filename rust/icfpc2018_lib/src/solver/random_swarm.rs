@@ -1,9 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{
+    BinaryHeap,
+};
 use rand::{self, Rng};
 
 use super::super::{
     coord::{
-        self,
         Coord,
         Matrix,
         Region,
@@ -13,7 +14,6 @@ use super::super::{
         Bid,
         Bot,
     },
-    kd,
     router::rtt,
 };
 
@@ -25,6 +25,8 @@ pub enum Error {
     EmptyCommandsBufferForRoute { route: Vec<Coord>, },
     RouteAttempsLimitExceeded { source: Coord, target: Coord, attempts: usize, },
     GlobalTicksLimitExceeded { ticks: usize, script_so_far: Vec<BotCommand>, voxels_to_do: usize, },
+    NoRouteToVoidDest { start: Coord, finish: Coord, },
+    NoRouteToFillDest { start: Coord, finish: Coord, },
 }
 
 pub struct Config {
@@ -50,6 +52,15 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
     let mut script: Vec<BotCommand> = Vec::new();
     let mut volatiles: Vec<Region> = Vec::new();
     let mut positions: Vec<Coord> = Vec::new();
+
+    let mut void_towers: BinaryHeap<(isize, isize, isize, Region)> = make_towers(&env.source_model)
+        .into_iter()
+        .map(|reg| (reg.min.y, -reg.min.z, -reg.min.x, reg))
+        .collect();
+    let mut fill_towers: BinaryHeap<(isize, isize, isize, Region)> = make_towers(&env.target_model)
+        .into_iter()
+        .map(|reg| (-reg.min.y, -reg.min.z, -reg.min.x, reg))
+        .collect();
 
     let mut nanobots = if env.config.init_bots.is_empty() {
         let (init_bid, init_bot) = Nanobot::init_bot();
@@ -135,6 +146,8 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
                         true
                     },
                     &mut commands_buf,
+                    &mut void_towers,
+                    &mut fill_towers,
                     rng,
                 );
 
@@ -208,20 +221,14 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
 struct Env {
     source_model: Matrix,
     target_model: Matrix,
-    source_kd: kd::KdTree,
-    target_kd: kd::KdTree,
     config: Config,
 }
 
 impl Env {
     fn new(source_model: Matrix, target_model: Matrix, config: Config) -> Env {
-        let source_kd = kd::KdTree::build(source_model.filled_voxels().cloned());
-        let target_kd = kd::KdTree::build(target_model.filled_voxels().cloned());
         Env {
             source_model,
             target_model,
-            source_kd,
-            target_kd,
             config,
         }
     }
@@ -237,7 +244,15 @@ struct Nanobot {
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Plan {
     Init,
-    HeadingFor { target: Coord, attempts: usize, },
+    HeadingFor { target: Coord, attempts: usize, goal: Goal, },
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Goal {
+    Park,
+    Wander,
+    Fill { tower: Region, },
+    Void { tower: Region, },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -272,6 +287,8 @@ impl Nanobot {
         work_state: WorkState,
         is_passable: FP,
         commands_buf: &mut Vec<(Coord, BotCommand)>,
+        void_towers: &mut BinaryHeap<(isize, isize, isize, Region)>,
+        fill_towers: &mut BinaryHeap<(isize, isize, isize, Region)>,
         rng: &mut R,
     )
         -> PlanResult where FP: Fn(&Region) -> bool, R: Rng,
@@ -299,7 +316,7 @@ impl Nanobot {
                                 near: INIT_POS.diff(&self.bot.pos),
                             }),
                         _ =>
-                            self.plan = Plan::HeadingFor { target: INIT_POS, attempts: 0, },
+                            self.plan = Plan::HeadingFor { target: INIT_POS, attempts: 0, goal: Goal::Park },
                     };
                 },
         }
@@ -308,120 +325,107 @@ impl Nanobot {
                 Plan::Init => {
                     // go somewhere
                     let target = pick_random_coord(current_model.dim() as isize, rng);
-                    self.plan = Plan::HeadingFor { target, attempts: 0, };
+                    self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
                 },
-                Plan::HeadingFor { target, .. } if target == self.bot.pos => {
-                    // reached a target
-                    // println!(" ;; successfully reached {:?}", target);
-
-                    // check if there is a job nearby
-                    for neighbour_coord in target.get_neighbours_limit(current_model.dim() as isize) {
-                        if let Some(cmd) = try_perform_job(&target, &neighbour_coord, env, current_model, &is_passable, rng) {
-                            // println!("  == performing job : {:?}", cmd);
-                            return PlanResult::Regular { nanobot: self, cmd, };
-                        }
-                    }
-
-                    // locate and move to a job to perform
-                    let mut nearest_voids = env.source_kd.nearest(&target);
-                    let mut nearest_fills = env.target_kd.nearest(&target);
-                    let mut maybe_void = nearest_voids.next();
-                    let mut maybe_fill = nearest_fills.next();
-                    let mut shuffle_coords = Vec::new();
-                    loop {
-                        let nearest_job = loop {
-                            match (maybe_void.take(), maybe_fill.take()) {
-                                (None, None) =>
-                                    break None,
-                                (Some((job, _)), None) => {
-                                    maybe_void = nearest_voids.next();
-                                    break Some(job);
-                                },
-                                (None, Some((job, _))) => {
-                                    maybe_fill = nearest_fills.next();
-                                    break Some(job);
-                                },
-                                (Some((job_void, dist_void)), Some((job_fill, dist_fill))) =>
-                                    if dist_void < dist_fill {
-                                        maybe_void = nearest_voids.next();
-                                        break Some(job_void);
-                                    } else {
-                                        maybe_fill = nearest_fills.next();
-                                        break Some(job_fill);
-                                    },
-                            }
-                        };
-                        if let Some(job) = nearest_job {
-                            if try_perform_job(&target, &job, env, current_model, &is_passable, rng).is_none() {
-                                continue;
-                            }
-                            shuffle_coords.extend(job.get_neighbours_limit(current_model.dim() as isize));
-                            rng.shuffle(&mut shuffle_coords);
-                            for possible_target in shuffle_coords.drain(..) {
-                                let route_result =
-                                    route_and_step(&target, &possible_target, current_model, &is_passable, commands_buf, env.config.rtt_limit, rng);
-                                match route_result {
-                                    Ok(Some(moving_cmd)) => {
-
-                                        // println!(" ;; found new job at {:?} moving from {:?}, performing {:?}",
-                                        //          possible_target, target, moving_cmd);
-
-                                        self.plan = Plan::HeadingFor { target: possible_target, attempts: 0, };
-                                        return PlanResult::Regular { nanobot: self, cmd: moving_cmd, };
-                                    },
-                                    Ok(None) =>
-                                        (),
-                                    Err(error) =>
-                                        return PlanResult::Error(error),
-                                }
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                    // no job could be found, go somewhere
-                    let wandering_target = pick_random_coord(current_model.dim() as isize, rng);
-                    // println!(" ;; no job could be found, wandering from {:?} to {:?}", target, wandering_target);
-                    // println!("  == original is {}", if is_passable(&Region { min: target, max: target, }) { "passable" } else { "blocked" });
-                    self.plan = Plan::HeadingFor {
-                        target: wandering_target,
-                        attempts: 0,
-                    };
-                },
-                Plan::HeadingFor { target, attempts, } if attempts > env.config.route_attempts_limit =>
+                Plan::HeadingFor { target, attempts, .. } if attempts > env.config.route_attempts_limit =>
                     return PlanResult::Error(Error::RouteAttempsLimitExceeded {
                         source: self.bot.pos,
                         target,
                         attempts,
                     }),
-                Plan::HeadingFor { target, attempts, } => {
+                Plan::HeadingFor { goal: Goal::Park, target, .. } if target == self.bot.pos =>
+                    unreachable!(),
+                Plan::HeadingFor { goal: Goal::Wander, target, .. } if target == self.bot.pos =>
+                    self.plan = if let Some((_, _, _, void_region)) = void_towers.pop() {
+                        Plan::HeadingFor {
+                            goal: Goal::Void { tower: void_region, },
+                            target: Coord {
+                                x: void_region.max.x,
+                                y: void_region.max.y + 1,
+                                z: void_region.max.z,
+                            },
+                            attempts: 0,
+                        }
+                    } else if let Some((_, _, _, fill_region)) = fill_towers.pop() {
+                        Plan::HeadingFor {
+                            goal: Goal::Fill { tower: fill_region, },
+                            target: Coord {
+                                x: fill_region.min.x,
+                                y: fill_region.min.y + 1,
+                                z: fill_region.min.z,
+                            },
+                            attempts: 0,
+                        }
+                    } else {
+                        // go somewhere
+                        let target = pick_random_coord(current_model.dim() as isize, rng);
+                        Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, }
+                    },
+                Plan::HeadingFor { goal: Goal::Void { mut tower, }, mut target, .. } if target == self.bot.pos => {
+                    let job_coord = tower.max;
+                    let current_filled = current_model.is_filled(&job_coord);
+                    let source_filled = env.source_model.is_filled(&job_coord);
+                    if current_filled && source_filled {
+                        return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, };
+                    } else if tower.min == tower.max {
+                        // go somewhere
+                        let target = pick_random_coord(current_model.dim() as isize, rng);
+                        self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                    } else {
+                        tower.max.y -= 1;
+                        target.y -= 1;
+                        self.plan = Plan::HeadingFor {
+                            goal: Goal::Void { tower, },
+                            target,
+                            attempts: 0,
+                        };
+                    }
+                },
+                Plan::HeadingFor { goal: Goal::Fill { mut tower, }, mut target, .. } if target == self.bot.pos => {
+                    let job_coord = tower.min;
+                    let current_filled = current_model.is_filled(&job_coord);
+                    let target_filled = env.target_model.is_filled(&job_coord);
+                    if !current_filled && target_filled {
+                        return PlanResult::Regular { nanobot: self, cmd: BotCommand::Fill { near: job_coord.diff(&target), }, };
+                    } else if tower.min == tower.max {
+                        // go somewhere
+                        let target = pick_random_coord(current_model.dim() as isize, rng);
+                        self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                    } else {
+                        tower.min.y += 1;
+                        target.y += 1;
+                        self.plan = Plan::HeadingFor {
+                            goal: Goal::Fill { tower, },
+                            target,
+                            attempts: 0,
+                        };
+                    }
+                },
+                Plan::HeadingFor { target, attempts, goal, } => {
                     // still moving to target
                     let route_result =
                         route_and_step(&self.bot.pos, &target, current_model, &is_passable, commands_buf, env.config.rtt_limit, rng);
                     match route_result {
                         Ok(Some(moving_cmd)) => {
                             // can continue moving
-                            // println!("   -- can continue moving from {:?} to {:?} with {:?}", self.bot.pos, target, moving_cmd);
-
-                            self.plan = Plan::HeadingFor { target, attempts: 0, };
+                            self.plan = Plan::HeadingFor { target, goal, attempts: 0, };
                             return PlanResult::Regular { nanobot: self, cmd: moving_cmd, };
                         },
-                        Ok(None) => {
+                        Ok(None) =>
                             // can not move there
-                            // println!("   -- can not move from {:?} to {:?}", self.bot.pos, target);
-
-                            match work_state {
-                                WorkState::InProgress => {
+                            match goal {
+                                Goal::Wander => {
                                     // pick another wandering target
                                     let target = pick_random_coord(current_model.dim() as isize, rng);
-                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, };
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Wander, };
                                 },
-                                WorkState::Completed { .. } => {
+                                Goal::Park => {
                                     // try to find a free position nearby
                                     let next_attempts = attempts + 1;
                                     let offset = (next_attempts / 3) as isize;
                                     let axis = next_attempts % 3;
                                     self.plan = Plan::HeadingFor {
+                                        goal: Goal::Park,
                                         target: Coord {
                                             x: target.x + if axis == 0 { offset } else { 0 },
                                             y: target.y + if axis == 1 { offset } else { 0 },
@@ -430,8 +434,17 @@ impl Nanobot {
                                         attempts: next_attempts,
                                     };
                                 },
+                                Goal::Void { .. } =>
+                                    return PlanResult::Error(Error::NoRouteToVoidDest {
+                                        start: self.bot.pos,
+                                        finish: target,
+                                    }),
+                                Goal::Fill { .. } =>
+                                    return PlanResult::Error(Error::NoRouteToFillDest {
+                                        start: self.bot.pos,
+                                        finish: target,
+                                    }),
                             }
-                        },
                         Err(error) =>
                             return PlanResult::Error(error),
                     }
@@ -441,49 +454,31 @@ impl Nanobot {
     }
 }
 
-fn try_perform_job<FP, R>(
-    bot_coord: &Coord,
-    job_coord: &Coord,
-    env: &Env,
-    current_model: &Matrix,
-    is_passable: FP,
-    rng: &mut R,
-)
-    -> Option<BotCommand> where
-    FP: Fn(&Region) -> bool,
-    R: Rng,
-{
-    let current_filled = current_model.is_filled(job_coord);
-    let source_filled = env.source_model.is_filled(job_coord);
-    let target_filled = env.target_model.is_filled(job_coord);
-    if current_filled && source_filled && !target_filled {
-        // "void" job
-        let voxels: HashSet<_> = current_model
-            .filled_voxels()
-            .cloned()
-            .filter(|c| c != job_coord)
-            .collect();
-        if coord::all_voxels_are_grounded(voxels) {
-            return Some(BotCommand::Void { near: job_coord.diff(bot_coord), });
-        }
-    }
-    if !current_filled && target_filled {
-        // "fill" job
-        if current_model.will_be_grounded(job_coord) {
-            let maybe_route = rtt::plan_route_rng(
-                bot_coord,
-                &INIT_POS,
-                current_model.dim(),
-                |region| !region.contains(job_coord) && is_passable(region),
-                env.config.rtt_limit,
-                rng,
-            );
-            if maybe_route.is_some() {
-                return Some(BotCommand::Fill { near: job_coord.diff(bot_coord), });
+fn make_towers(model: &Matrix) -> Vec<Region> {
+    let dim = model.dim() as isize;
+    let mut regions = Vec::new();
+    for x in 0 .. dim {
+        for z in 0 .. dim {
+            let mut current_reg: Option<Region> = None;
+            for y in 0 .. dim {
+                let p = Coord { x, y, z, };
+                if model.is_filled(&p) {
+                    if let Some(ref mut reg) = current_reg {
+                        reg.max = p;
+                    } else {
+                        current_reg = Some(Region { min: p, max: p, });
+                    }
+                } else if let Some(reg) = current_reg {
+                    regions.push(reg);
+                    current_reg = None;
+                }
+            }
+            if let Some(reg) = current_reg {
+                regions.push(reg);
             }
         }
     }
-    None
+    regions
 }
 
 fn pick_random_coord<R>(dim: isize, rng: &mut R) -> Coord where R: Rng {
@@ -535,6 +530,7 @@ mod test {
             Axis,
             Coord,
             Matrix,
+            Region,
             CoordDiff,
             Resolution,
             LinearCoordDiff,
@@ -564,6 +560,50 @@ mod test {
                 ],
             })
         );
+    }
+
+    #[test]
+    fn make_towers_1() {
+        let model = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 1, },
+            Coord { x: 1, y: 1, z: 1, },
+            Coord { x: 1, y: 2, z: 1, },
+        ]);
+        assert_eq!(super::make_towers(&model), vec![Region {
+            min: Coord { x: 1, y: 0, z: 1, },
+            max: Coord { x: 1, y: 2, z: 1, },
+        }]);
+    }
+
+    #[test]
+    fn make_towers_4() {
+        let model = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 1, },
+            Coord { x: 1, y: 1, z: 1, },
+            Coord { x: 1, y: 2, z: 1, },
+            Coord { x: 0, y: 0, z: 0, },
+            Coord { x: 0, y: 1, z: 0, },
+            Coord { x: 2, y: 2, z: 2, },
+            Coord { x: 2, y: 0, z: 2, },
+        ]);
+        assert_eq!(super::make_towers(&model), vec![
+            Region {
+                min: Coord { x: 0, y: 0, z: 0, },
+                max: Coord { x: 0, y: 1, z: 0, },
+            },
+            Region {
+                min: Coord { x: 1, y: 0, z: 1, },
+                max: Coord { x: 1, y: 2, z: 1, },
+            },
+            Region {
+                min: Coord { x: 2, y: 0, z: 2, },
+                max: Coord { x: 2, y: 0, z: 2, },
+            },
+            Region {
+                min: Coord { x: 2, y: 2, z: 2, },
+                max: Coord { x: 2, y: 2, z: 2, },
+            },
+        ]);
     }
 
     #[test]
@@ -725,8 +765,17 @@ mod test {
             script,
             vec![
                 BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 2 } },
-                BotCommand::Void { near: CoordDiff(Coord { x: 1, y: 0, z: -1 }) },
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: -2 } },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
+                },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 1 } },
+                BotCommand::Void { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
+                },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: -1 } },
                 BotCommand::Halt
             ],
         );
@@ -737,12 +786,12 @@ mod test {
         use rand::{SeedableRng, prng::XorShiftRng};
         let mut rng: XorShiftRng =
             SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        let source_model = Matrix::from_iter(Resolution(3), vec![
+        let source_model = Matrix::from_iter(Resolution(4), vec![
             Coord { x: 1, y: 0, z: 1, },
             Coord { x: 1, y: 1, z: 1, },
             Coord { x: 1, y: 2, z: 1, },
         ]);
-        let target_model = Matrix::from_iter(Resolution(3), vec![]);
+        let target_model = Matrix::from_iter(Resolution(4), vec![]);
         let script = super::solve_rng(
             source_model,
             target_model,
@@ -757,19 +806,21 @@ mod test {
         assert_eq!(
             script,
             vec![
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 2 } },
                 BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
+                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: 3 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 1 },
                 },
                 BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 1 } },
-                BotCommand::Void { near: CoordDiff(Coord { x: 0, y: 1, z: 1 }) },
-                BotCommand::Void { near: CoordDiff(Coord { x: 0, y: 0, z: 1 }) },
-                BotCommand::Void { near: CoordDiff(Coord { x: 0, y: -1, z: 1 }) },
+                BotCommand::Void { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: -1 } },
+                BotCommand::Void { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: -1 } },
+                BotCommand::Void { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
                 BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
+                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
                 },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: -1 } },
                 BotCommand::Halt,
             ],
         );
@@ -780,8 +831,8 @@ mod test {
         use rand::{SeedableRng, prng::XorShiftRng};
         let mut rng: XorShiftRng =
             SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        let source_model = Matrix::from_iter(Resolution(3), vec![]);
-        let target_model = Matrix::from_iter(Resolution(3), vec![
+        let source_model = Matrix::from_iter(Resolution(4), vec![]);
+        let target_model = Matrix::from_iter(Resolution(4), vec![
             Coord { x: 1, y: 0, z: 1, },
             Coord { x: 1, y: 1, z: 1, },
             Coord { x: 1, y: 2, z: 1, },
@@ -800,22 +851,21 @@ mod test {
         assert_eq!(
             script,
             vec![
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 2 } },
-                BotCommand::Fill { near: CoordDiff(Coord { x: 1, y: 0, z: -1 }) },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
-                },
-                BotCommand::Fill { near: CoordDiff(Coord { x: 1, y: 0, z: 1 }) },
                 BotCommand::LMove {
                     short1: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::X, value: 2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 1 },
                 },
-                BotCommand::Fill { near: CoordDiff(Coord { x: -1, y: 0, z: 1 }) },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: 1 } },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: 1 } },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: 1 } },
+                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
                 BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -2 },
-                    short2: LinearCoordDiff::Short { axis: Axis::X, value: -2 },
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
                 },
+                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: -3 } },
                 BotCommand::Halt,
             ],
         );
@@ -826,12 +876,12 @@ mod test {
         use rand::{SeedableRng, prng::XorShiftRng};
         let mut rng: XorShiftRng =
             SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        let source_model = Matrix::from_iter(Resolution(3), vec![
+        let source_model = Matrix::from_iter(Resolution(4), vec![
             Coord { x: 1, y: 0, z: 1, },
             Coord { x: 1, y: 1, z: 1, },
             Coord { x: 1, y: 2, z: 1, },
         ]);
-        let target_model = Matrix::from_iter(Resolution(3), vec![
+        let target_model = Matrix::from_iter(Resolution(4), vec![
             Coord { x: 1, y: 0, z: 1, },
             Coord { x: 1, y: 1, z: 1, },
             Coord { x: 0, y: 1, z: 1, },
@@ -850,8 +900,8 @@ mod test {
             },
             &mut rng,
         ).unwrap();
-        assert_eq!(script.iter().filter(|cmd| if let BotCommand::Fill { .. } = cmd { true } else { false }).count(), 4);
-        assert_eq!(script.iter().filter(|cmd| if let BotCommand::Void { .. } = cmd { true } else { false }).count(), 1);
+        assert_eq!(script.iter().filter(|cmd| if let BotCommand::Fill { .. } = cmd { true } else { false }).count(), 6);
+        assert_eq!(script.iter().filter(|cmd| if let BotCommand::Void { .. } = cmd { true } else { false }).count(), 3);
         assert_eq!(script.last(), Some(&BotCommand::Halt));
     }
 
