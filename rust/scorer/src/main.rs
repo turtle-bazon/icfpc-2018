@@ -18,9 +18,9 @@ enum Error {
     Args(clap::Error),
     NoSourceOrTargetModelProvided,
     Io(std::io::Error),
-    Model(kernel::model::Error),
-    Cmd(kernel::cmd::Error),
-    State(kernel::state::Error),
+    Model(model::Error),
+    Cmd(cmd::Error),
+    State(state::Error),
     ModelNotMatch,
 }
 
@@ -74,9 +74,9 @@ fn main() -> Result<(),Error> {
     let mut buffer = Vec::new();
     f.read_to_end(&mut buffer).map_err(Error::Io)?;
 
-    let mut state = kernel::state::State::new(source_model, vec![]);
+    let mut state = state::State::new(source_model, vec![]);
 
-    let cmds = kernel::cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
+    let cmds = cmd::from_bytes(&buffer).map_err(Error::Cmd)?;
     println!("Commands: {}", cmds.len());
 
     let res = state.run_mut(cmds);
