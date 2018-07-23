@@ -96,6 +96,9 @@ fn run() -> Result<(), Error> {
             }
         };
 
+    info!("source model with {} voxels", source_model.filled_voxels().count());
+    info!("target model with {} voxels", target_model.filled_voxels().count());
+
     let config = random_swarm::Config {
         init_bots: vec![],
         rtt_limit: value_t!(matches, "rtt-limit", usize)
