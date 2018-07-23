@@ -15,24 +15,41 @@ use super::super::{
         Axis,
         Coord,
         Region,
-        Matrix,
         CoordDiff,
         LinearCoordDiff,
     },
     cmd::BotCommand,
 };
 
-pub fn plan_route<VI>(
-    &bot_start: &Coord,
-    &bot_finish: &Coord,
-    matrix: &Matrix,
-    volatile: VI,
+pub fn plan_route<FP>(
+    bot_start: &Coord,
+    bot_finish: &Coord,
+    matrix_dim: usize,
+    is_passable: FP,
     max_iters: usize,
 )
     -> Option<Vec<Coord>> where
-    VI: Iterator<Item = Region> + Clone
+    FP: Fn(&Region) -> bool,
 {
-    let mut rng = rand::thread_rng();
+    plan_route_rng(bot_start, bot_finish, matrix_dim, is_passable, max_iters, &mut rand::thread_rng())
+}
+
+pub fn plan_route_rng<FP, R>(
+    &bot_start: &Coord,
+    &bot_finish: &Coord,
+    matrix_dim: usize,
+    is_passable: FP,
+    max_iters: usize,
+    rng: &mut R,
+)
+    -> Option<Vec<Coord>> where
+    FP: Fn(&Region) -> bool,
+    R: Rng,
+{
+    if !is_passable(&Region { min: bot_finish, max: bot_finish, }) {
+        return None;
+    }
+
     let mut visited_voxels = HashSet::new();
     let mut iters = 0;
 
@@ -62,7 +79,7 @@ pub fn plan_route<VI>(
             let planner_sample = planner_ready_to_sample.sample_ok(|_rtt: &mut _| if first_time {
                 Ok(bot_finish)
             } else {
-                let dim = matrix.dim() as isize;
+                let dim = matrix_dim as isize;
                 Ok(Coord {
                     x: rng.gen_range(0, dim),
                     y: rng.gen_range(0, dim),
@@ -96,11 +113,7 @@ pub fn plan_route<VI>(
                 let node_ref = &planner_closest.node_ref().node_ref;
                 let &dst = planner_closest.sample();
                 let &src = rtt.get_state(node_ref);
-                random_valid_edge_path(
-                    src, dst, matrix,
-	            volatile.clone(),
-                    &mut rng,
-                )
+                random_valid_edge_path(src, dst, &is_passable, rng)
             };
 
             if let Some(jump) = maybe_route {
@@ -228,15 +241,14 @@ fn random_edge_paths<R>(start: Coord, finish: Coord, rng: &mut R) -> impl Iterat
         })
 }
 
-fn random_valid_edge_path<VI, R>(
+fn random_valid_edge_path<FP, R>(
     start: Coord,
     finish: Coord,
-    matrix: &Matrix,
-    volatile: VI,
+    is_passable: FP,
     rng: &mut R,
 )
     -> Option<EdgesJump> where
-    VI: Iterator<Item = Region> + Clone,
+    FP: Fn(&Region) -> bool,
     R: Rng,
 {
     random_edge_paths(start, finish, rng)
@@ -246,14 +258,7 @@ fn random_valid_edge_path<VI, R>(
             let rc = Region::from_corners(&jump.mid_b, &jump.finish);
             (jump, ra, rb, rc)
         })
-        .filter(move |&(_, ref ra, ref rb, ref rc)| {
-            !volatile
-                .clone()
-                .any(|reg| reg.intersects(&ra) || reg.intersects(&rb) || reg.intersects(rc))
-                && !matrix.contains_filled(&ra)
-                && !matrix.contains_filled(&rb)
-                && !matrix.contains_filled(&rc)
-        })
+        .filter(move |&(_, ref ra, ref rb, ref rc)| is_passable(ra) && is_passable(rb) && is_passable(rc))
         .map(|rt| rt.0)
         .next()
 }
@@ -337,11 +342,10 @@ mod test {
         let path = super::random_valid_edge_path(
             Coord { x: 0, y: 0, z: 0, },
             Coord { x: 2, y: 2, z: 2, },
-            &matrix,
-            Some(Region::from_corners(
+            |region| !matrix.contains_filled(region) && !region.intersects(&Region::from_corners(
                 &Coord { x: 1, y: 2, z: 0, },
                 &Coord { x: 2, y: 2, z: 0, },
-            )).into_iter(),
+            )),
             &mut rand::thread_rng(),
         );
         assert_eq!(path, Some(
@@ -358,21 +362,25 @@ mod test {
     fn plan_route() {
         let matrix = Matrix::from_iter(Resolution(3), vec![
             Coord { x: 0, y: 1, z: 0, },
-        ]);
+            ]);
+        let volatiles = vec![
+            Region::from_corners(
+                &Coord { x: 0, y: 1, z: 1, },
+                &Coord { x: 1, y: 2, z: 2, },
+            ),
+            Region::from_corners(
+                &Coord { x: 2, y: 0, z: 0, },
+                &Coord { x: 2, y: 1, z: 2, },
+            ),
+        ];
         let mut path = super::plan_route(
             &Coord { x: 0, y: 0, z: 0, },
             &Coord { x: 2, y: 2, z: 2, },
-            &matrix,
-            vec![
-                Region::from_corners(
-                    &Coord { x: 0, y: 1, z: 1, },
-                    &Coord { x: 1, y: 2, z: 2, },
-                ),
-                Region::from_corners(
-                    &Coord { x: 2, y: 0, z: 0, },
-                    &Coord { x: 2, y: 1, z: 2, },
-                ),
-            ].into_iter(),
+            matrix.dim(),
+            |region| {
+                !volatiles.iter().any(|reg| reg.intersects(region))
+                    && !matrix.contains_filled(region)
+            },
             128,
         );
         path.as_mut().map(|p| if let Some(i) = p.iter().position(|c| c == &Coord { x: 1, y: 1, z: 0, }) { p.remove(i); });
