@@ -406,10 +406,27 @@ impl Nanobot {
                     let current_filled = current_model.is_filled(&job_coord);
                     let source_filled = env.source_model.is_filled(&job_coord);
                     if current_filled && source_filled {
-                        return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, };
+                        let safe_to_remove =
+                            coord::all_voxels_are_grounded(current_model.filled_voxels().cloned().filter(|voxel| voxel != &job_coord).collect());
+                        match harmonics {
+                            Harmonics::Low if safe_to_remove =>
+                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, },
+                            Harmonics::Low =>
+                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
+                            Harmonics::High if safe_to_remove =>
+                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
+                            Harmonics::High =>
+                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, },
+                        }
                     } else if tower.min == tower.max {
-                        // get next tower
-                        self.plan = Plan::HeadingFor { goal: Goal::Wander, target, attempts: 0, };
+                        match harmonics {
+                            // get next tower
+                            Harmonics::Low =>
+                                self.plan = Plan::HeadingFor { goal: Goal::Wander, target, attempts: 0, },
+                            // turn on gravity
+                            Harmonics::High =>
+                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
+                        }
                     } else {
                         tower.max.y -= 1;
                         target.y -= 1;

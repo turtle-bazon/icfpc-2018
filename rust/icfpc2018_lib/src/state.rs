@@ -177,7 +177,7 @@ impl State {
                     LinearCoordDiff::Short{axis,value} =>
                         match axis {
                             Axis::X => {
-                                if (*value > 0) {
+                                if *value > 0 {
                                     Region::from_corners(&Coord { x: cf.x + 1, y: cf.y, z: cf.z, }, &cff)
                                 }
                                 else {
@@ -185,7 +185,7 @@ impl State {
                                 }
                             },
                             Axis::Y => {
-                                if (*value > 0) {
+                                if *value > 0 {
                                     Region::from_corners(&Coord { x: cf.x, y: cf.y + 1, z: cf.z, }, &cff)
                                 }
                                 else {
@@ -193,7 +193,7 @@ impl State {
                                 }
                             }
                             Axis::Z => {
-                                if (*value > 0) {
+                                if *value > 0 {
                                     Region::from_corners(&Coord { x: cf.x, y: cf.y, z: cf.z + 1, }, &cff)
                                 }
                                 else {
