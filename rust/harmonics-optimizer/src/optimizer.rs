@@ -3,13 +3,27 @@ use std::collections::VecDeque;
 
 use icfpc2018_lib as kernel;
 
-use kernel::coord::{
-    Matrix,
+use kernel::{
+    coord::{
+        Matrix,
+    },
+    cmd::{
+        BotCommand,
+    },
+    state::{
+        State,
+        WellformedStatus,
+    },
 };
-use kernel::state::State;
-use kernel::cmd::BotCommand;
 
+#[derive(Debug)]
+pub enum Error {
+    State(kernel::state::Error),
+}
+
+#[derive(Debug)]
 pub struct HarmonicsOptimizer {
+
     last_step_commands: Vec<BotCommand>,
 }
 
@@ -22,23 +36,42 @@ impl Iterator for HarmonicsOptimizer {
 }
 
 impl HarmonicsOptimizer {
-    pub fn optimize(trace: Vec<BotCommand>, src_model: Matrix, dst_model: &Matrix) -> Vec<BotCommand> {
+    pub fn new() -> Self {
+        HarmonicsOptimizer {
+            last_step_commands: vec![],
+        }
+    }
+
+    // pub fn next_step(&mut self) {
+    // }
+
+    pub fn optimize(trace: Vec<BotCommand>, src_model: Matrix, dst_model: &Matrix) -> Result<Vec<BotCommand>, Error> {
         let mut state = State::new(src_model, vec![]);
-        
+        let mut optimizer = HarmonicsOptimizer::new();
+
         loop {
-            let res = state.step_mut(&mut cmd_iter);
-            match res {
-                Err(kernel::state::Error::StateNotWellformed{status}) => (),
-                Err(e) => {
-                    unimplemented!();
-                    return Err(e);
-                },
-                Ok(_) => ()
+            optimizer.last_step_commands = Vec::with_capacity(state.bots.len());
+
+            let res = state.step_mut(&mut optimizer);
+            if let Err(kernel::state::Error::StateNotWellformed{status}) = res {
+                if status == WellformedStatus::NotGroundedWhileLowHarmonics {
+
+                }
             }
 
-            if self.is_halt() {
+            // match res {
+            //     Err(kernel::state::Error::StateNotWellformed{status}) => {
+
+            //     },
+            //     Err(e) => {
+            //         return Err(Error::State(e));
+            //     },
+            //     Ok(_) => ()
+            // }
+
+            if state.is_halt() {
                 unimplemented!();
-                return Ok(())
+                // return Ok(())
             }
         }
         unimplemented!()
@@ -48,4 +81,3 @@ impl HarmonicsOptimizer {
 #[cfg(test)]
 mod test {
 }
-
