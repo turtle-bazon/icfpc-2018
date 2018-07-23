@@ -2,7 +2,6 @@ use rand::{self, Rng};
 
 use super::super::{
     coord::{
-        self,
         Coord,
         Matrix,
         Region,
@@ -33,6 +32,7 @@ pub struct Config {
     pub rtt_limit: usize,
     pub route_attempts_limit: usize,
     pub global_ticks_limit: usize,
+    pub max_spawns: usize,
 }
 
 pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Result<Vec<BotCommand>, (Error, Vec<BotCommand>)> {
@@ -57,8 +57,11 @@ pub fn solve_rng<R>(
     let mut current_model = env.source_model.clone();
     let mut commands_buf: Vec<(Coord, BotCommand)> = Vec::new();
     let mut script: Vec<BotCommand> = Vec::new();
+    let mut script_tick: Vec<BotCommand> = Vec::new();
     let mut volatiles: Vec<Region> = Vec::new();
     let mut positions: Vec<Coord> = Vec::new();
+    let mut pending_voids: Vec<Coord> = Vec::new();
+    let mut pending_fills: Vec<Coord> = Vec::new();
 
     let mut void_towers = make_towers(&env.source_model);
     let mut fill_towers = make_towers(&env.target_model);
@@ -81,6 +84,7 @@ pub fn solve_rng<R>(
     let mut ticks_count = 0;
     let mut work_complete = false;
     let mut harmonics = Harmonics::Low;
+    let mut ungrounded_voxel: Option<Coord> = None;
     loop {
         ticks_count += 1;
 
@@ -133,8 +137,9 @@ pub fn solve_rng<R>(
         positions.clear();
         positions.extend(nanobots.iter().map(|nanobot| nanobot.bot.pos));
 
+        let mut nanobots_count = nanobots.len();
         let mut next_nanobots =
-            Vec::with_capacity(nanobots.len());
+            Vec::with_capacity(nanobots_count);
         for nanobot in nanobots {
             let nanobot_pos = nanobot.bot.pos;
             let implement_result =
@@ -142,7 +147,8 @@ pub fn solve_rng<R>(
                     &env,
                     &current_model,
                     work_state,
-                    harmonics,
+                    ungrounded_voxel,
+                    nanobots_count,
                     |region| if current_model.contains_filled(region) {
                         false
                     } else if volatiles.iter().any(|reg| reg.intersects(region)) {
@@ -158,20 +164,17 @@ pub fn solve_rng<R>(
                     rng,
                 );
 
-            let mut interpret = |nanobot: &mut Nanobot, cmd: &BotCommand| match cmd {
+            let mut interpret = |nanobot: &mut Nanobot, cmd: &BotCommand| Ok(match cmd {
                 &BotCommand::Halt |
                 &BotCommand::Wait |
-                &BotCommand::Fission { .. } |
                 &BotCommand::FusionP{ .. } |
                 &BotCommand::FusionS{ .. } |
                 &BotCommand::GFill { .. } |
-                &BotCommand::GVoid { .. } =>
-                    (),
+                &BotCommand::GVoid { .. } |
                 &BotCommand::Flip =>
-                    harmonics = match harmonics {
-                        Harmonics::Low => Harmonics::High,
-                        Harmonics::High => Harmonics::Low,
-                    },
+                    (),
+                &BotCommand::Fission { .. } =>
+                    nanobots_count += 1,
                 &BotCommand::SMove { ref long } => {
                     let move_diff = long.to_coord_diff();
                     let move_coord = nanobot.bot.pos.add(move_diff);
@@ -198,25 +201,27 @@ pub fn solve_rng<R>(
                 },
                 &BotCommand::Fill { near, } => {
                     let fill_coord = nanobot.bot.pos.add(near);
-                    current_model.set_filled(&fill_coord);
+                    pending_fills.push(fill_coord);
+                    volatiles.push(Region { min: fill_coord, max: fill_coord, });
                 },
                 &BotCommand::Void{ near, } => {
                     let void_coord = nanobot.bot.pos.add(near);
-                    current_model.set_void(&void_coord);
+                    pending_voids.push(void_coord);
+                    volatiles.push(Region { min: void_coord, max: void_coord, });
                 },
-            };
+            });
 
             match implement_result {
                 PlanResult::DoAndPerish(cmd) =>
-                    script.push(cmd),
+                    script_tick.push(cmd),
                 PlanResult::Regular { mut nanobot, cmd, } => {
-                    interpret(&mut nanobot, &cmd);
-                    script.push(cmd);
+                    interpret(&mut nanobot, &cmd).map_err(|e| (e, script.clone()))?;
+                    script_tick.push(cmd);
                     next_nanobots.push(nanobot);
                 },
                 PlanResult::Spawn { mut parent, child, cmd, } => {
-                    interpret(&mut parent, &cmd);
-                    script.push(cmd);
+                    interpret(&mut parent, &cmd).map_err(|e| (e, script.clone()))?;
+                    script_tick.push(cmd);
                     next_nanobots.push(parent);
                     next_nanobots.push(child);
                 },
@@ -226,6 +231,34 @@ pub fn solve_rng<R>(
         }
         nanobots = next_nanobots;
         nanobots.sort_by_key(|nanobot| nanobot.bid);
+
+        for void_coord in pending_voids.drain(..) {
+            current_model.set_void(&void_coord);
+        }
+        for fill_coord in pending_fills.drain(..) {
+            current_model.set_filled(&fill_coord);
+        }
+
+        ungrounded_voxel = current_model.first_ungrounded_voxel();
+        if ungrounded_voxel.is_some() {
+            if let Harmonics::Low = harmonics {
+                script.push(BotCommand::Flip);
+                script.extend((1 .. nanobots.len()).map(|_| BotCommand::Wait));
+                script.extend(script_tick.drain(..));
+                harmonics = Harmonics::High;
+            } else {
+                script.extend(script_tick.drain(..));
+            }
+        } else {
+            if let Harmonics::High = harmonics {
+                script.extend(script_tick.drain(..));
+                script.push(BotCommand::Flip);
+                script.extend((1 .. nanobots.len()).map(|_| BotCommand::Wait));
+                harmonics = Harmonics::Low;
+            } else {
+                script.extend(script_tick.drain(..));
+            }
+        }
     }
 }
 
@@ -258,7 +291,7 @@ enum Plan {
     HeadingFor { target: Coord, attempts: usize, goal: Goal, },
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Goal {
     Park,
     Wander,
@@ -275,7 +308,6 @@ enum WorkState {
     },
 }
 
-#[allow(dead_code)]
 enum PlanResult {
     DoAndPerish(BotCommand),
     Regular { nanobot: Nanobot, cmd: BotCommand, },
@@ -296,7 +328,8 @@ impl Nanobot {
         env: &Env,
         current_model: &Matrix,
         work_state: WorkState,
-        harmonics: Harmonics,
+        ungrounded_voxel: Option<Coord>,
+        nanobots_count: usize,
         is_passable: FP,
         commands_buf: &mut Vec<(Coord, BotCommand)>,
         void_towers: &mut Vec<Region>,
@@ -309,32 +342,27 @@ impl Nanobot {
             WorkState::InProgress =>
                 (),
             WorkState::Completed { nanobots_left, slave_pick, } =>
-                match harmonics {
-                    Harmonics::Low =>
-                        if self.bot.pos == INIT_POS {
-                            // i am the master
-                            return if nanobots_left == 1 {
-                                PlanResult::DoAndPerish(BotCommand::Halt)
-                            } else if let Some(slave_coord) = slave_pick {
-                                let fusion_cmd = BotCommand::FusionP {
-                                    near: slave_coord.diff(&self.bot.pos),
-                                };
-                                PlanResult::Regular { nanobot: self, cmd: fusion_cmd, }
-                            } else {
-                                PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
-                            };
-                        } else {
-                            match slave_pick {
-                                Some(coord) if coord == self.bot.pos =>
-                                    return PlanResult::DoAndPerish(BotCommand::FusionS {
-                                        near: INIT_POS.diff(&self.bot.pos),
-                                    }),
-                                _ =>
-                                    self.plan = Plan::HeadingFor { target: INIT_POS, attempts: 0, goal: Goal::Park },
-                            };
-                        },
-                    Harmonics::High =>
-                        return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
+                if self.bot.pos == INIT_POS {
+                    // i am the master
+                    return if nanobots_left == 1 {
+                        PlanResult::DoAndPerish(BotCommand::Halt)
+                    } else if let Some(slave_coord) = slave_pick {
+                        let fusion_cmd = BotCommand::FusionP {
+                            near: slave_coord.diff(&self.bot.pos),
+                        };
+                        PlanResult::Regular { nanobot: self, cmd: fusion_cmd, }
+                    } else {
+                        PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
+                    };
+                } else {
+                    match slave_pick {
+                        Some(coord) if coord == self.bot.pos =>
+                            return PlanResult::DoAndPerish(BotCommand::FusionS {
+                                near: INIT_POS.diff(&self.bot.pos),
+                            }),
+                        _ =>
+                            self.plan = Plan::HeadingFor { target: INIT_POS, attempts: 0, goal: Goal::Park },
+                    };
                 },
         }
         loop {
@@ -344,36 +372,51 @@ impl Nanobot {
                     let target = pick_random_coord(current_model.dim() as isize, rng);
                     self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
                 },
-                Plan::HeadingFor { target, attempts, .. } if attempts > env.config.route_attempts_limit =>
+                Plan::HeadingFor { target, attempts, goal, } if attempts > env.config.route_attempts_limit => {
+                    debug!("HeadingFor attempts limit exceeded for bid = {} and  goal = {:?}", self.bid, goal);
+                    debug!("current source pos is {}",
+                           if is_passable(&Region { min: self.bot.pos, max: self.bot.pos, }) { "passable" } else { "blocked" });
+                    debug!("current target pos is {}",
+                           if is_passable(&Region { min: target, max: target, }) { "passable" } else { "blocked" });
                     return PlanResult::Error(Error::RouteAttempsLimitExceeded {
                         source: self.bot.pos,
                         target,
                         attempts,
-                    }),
+                    });
+                },
                 Plan::HeadingFor { goal: Goal::Park, target, .. } if target == self.bot.pos =>
-                    unreachable!(),
+                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, },
                 Plan::HeadingFor { goal: Goal::Wander, target, .. } if target == self.bot.pos => {
-                    let maybe_void_index = match harmonics {
-                        Harmonics::Low =>
-                            void_towers.iter().position(|region| coord::all_voxels_are_grounded(
-                                current_model.filled_voxels().cloned().filter(|voxel| !region.contains(voxel)).collect())),
-                        Harmonics::High =>
-                            if void_towers.is_empty() {
-                                None
-                            } else {
-                                Some(rng.gen_range(0, void_towers.len()))
-                            },
-                    };
-                    let maybe_fill_index = match harmonics {
-                        Harmonics::Low =>
-                            fill_towers.iter().position(|region| current_model.will_be_grounded(&region.min)),
-                        Harmonics::High =>
-                            if fill_towers.is_empty() {
-                                None
-                            } else {
-                                Some(rng.gen_range(0, fill_towers.len()))
-                            },
-                    };
+                    // spawn if able to
+                    if self.bot.seeds.len() > 0 && nanobots_count < env.config.max_spawns {
+                        if let Some(pos) = target.get_neighbours().find(|&p| is_passable(&Region { min: p, max: p, })) {
+                            let child = Nanobot {
+                                bid: self.bot.seeds.remove(0),
+                                bot: Bot { pos, seeds: vec![], },
+                                plan: Plan::Init,
+                            };
+                            return PlanResult::Spawn {
+                                parent: self,
+                                child,
+                                cmd: BotCommand::Fission { near: pos.diff(&target), split_m: 0, },
+                            };
+                        }
+                    }
+
+                    // take a job if any
+                    let dim = current_model.dim() as isize;
+                    let maybe_void_index = void_towers.iter()
+                        .enumerate()
+                        .min_by_key(|(_, region)| {
+                            (ungrounded_voxel.map(|v| !region.contains(&v)).unwrap_or(true), -region.max.y, dim - region.min.y)
+                        })
+                        .map(|p| p.0);
+                    let maybe_fill_index = fill_towers.iter()
+                        .enumerate()
+                        .min_by_key(|(_, region)| {
+                            (ungrounded_voxel.map(|v| !region.contains(&v)).unwrap_or(true), region.min.y, region.max.y)
+                        })
+                        .map(|p| p.0);
                     self.plan = if let Some(index) = maybe_void_index {
                         let void_region = void_towers.swap_remove(index);
                         Plan::HeadingFor {
@@ -396,10 +439,6 @@ impl Nanobot {
                             },
                             attempts: 0,
                         }
-                    } else if !void_towers.is_empty() || !fill_towers.is_empty() {
-                        // no accessible regions left: switch the harmonics
-                        self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
-                        return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, };
                     } else {
                         // no jobs left, but model isn't fully printed yet: go wandering
                         let target = pick_random_coord(current_model.dim() as isize, rng);
@@ -411,26 +450,10 @@ impl Nanobot {
                     let current_filled = current_model.is_filled(&job_coord);
                     let source_filled = env.source_model.is_filled(&job_coord);
                     if current_filled && source_filled {
-                        let safe_to_remove =
-                            // current_model.filled_near_neighbours(&job_coord).all(|coord| current_model.is_grounded(&coord));
-                            coord::all_voxels_are_grounded(current_model.filled_voxels().cloned().filter(|voxel| voxel != &job_coord).collect());
-                        match harmonics {
-                            Harmonics::Low if safe_to_remove =>
-                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, },
-                            Harmonics::Low =>
-                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
-                            Harmonics::High =>
-                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, },
-                        }
+                        return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, };
                     } else if tower.min == tower.max {
-                        match harmonics {
-                            // get next tower
-                            Harmonics::Low =>
-                                self.plan = Plan::HeadingFor { goal: Goal::Wander, target, attempts: 0, },
-                            // turn on gravity
-                            Harmonics::High =>
-                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
-                        }
+                        // get next tower
+                        self.plan = Plan::HeadingFor { goal: Goal::Wander, target, attempts: 0, };
                     } else {
                         tower.max.y -= 1;
                         target.y -= 1;
@@ -446,7 +469,11 @@ impl Nanobot {
                     let current_filled = current_model.is_filled(&job_coord);
                     let target_filled = env.target_model.is_filled(&job_coord);
                     if !current_filled && target_filled {
-                        return PlanResult::Regular { nanobot: self, cmd: BotCommand::Fill { near: job_coord.diff(&target), }, };
+                        return if is_passable(&Region { min: job_coord, max: job_coord, }) {
+                            PlanResult::Regular { nanobot: self, cmd: BotCommand::Fill { near: job_coord.diff(&target), }, }
+                        } else {
+                            PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
+                        };
                     } else if tower.min == tower.max {
                         // get next tower
                         self.plan = Plan::HeadingFor { goal: Goal::Wander, target, attempts: 0, };
@@ -493,10 +520,14 @@ impl Nanobot {
                                         attempts: next_attempts,
                                     };
                                 },
-                                Goal::Void { tower, } =>
-                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Void { tower, } },
-                                Goal::Fill { tower, } =>
-                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Fill { tower, } },
+                                Goal::Void { tower, } => {
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Void { tower, } };
+                                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
+                                },
+                                Goal::Fill { tower, } => {
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Fill { tower, } };
+                                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
+                                },
                             }
                         Err(error) =>
                             return PlanResult::Error(error),
@@ -668,6 +699,7 @@ mod test {
             rtt_limit: 64,
             route_attempts_limit: 16,
             global_ticks_limit: 100,
+            max_spawns: 1,
         }).unwrap();
         assert_eq!(script, vec![BotCommand::Halt]);
     }
@@ -687,6 +719,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -717,6 +750,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -762,6 +796,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -811,6 +846,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -853,6 +889,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -898,6 +935,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -950,6 +988,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -966,17 +1005,18 @@ mod test {
     //     let mut rng: XorShiftRng =
     //         SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     //     let source_model = Matrix::new(Resolution(target_model.dim() as isize));
-    //     let _script = super::solve_rng(
+    //     let script = super::solve_rng(
     //         source_model,
     //         target_model,
     //         super::Config {
     //             init_bots: vec![],
-    //             rtt_limit: 64,
-    //             route_attempts_limit: 64,
+    //             rtt_limit: 256,
+    //             route_attempts_limit: 512,
     //             global_ticks_limit: 4096,
+    //             max_spawns: 1,
     //         },
     //         &mut rng,
     //     ).unwrap();
-
+    //     assert_eq!(script.last(), Some(&BotCommand::Halt));
     // }
 }

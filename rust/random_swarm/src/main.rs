@@ -75,6 +75,13 @@ fn run() -> Result<(), Error> {
              .help("Solver RTT router attempts limit")
              .default_value("16")
              .takes_value(true))
+        .arg(Arg::with_name("max-spawns")
+             .short("M")
+             .long("max-spawns")
+             .value_name("COUNT")
+             .help("Solver maximum child spawns limit")
+             .default_value("1")
+             .takes_value(true))
         .arg(Arg::with_name("output")
              .short("o")
              .long("output")
@@ -113,6 +120,8 @@ fn run() -> Result<(), Error> {
         route_attempts_limit: value_t!(matches, "route-attempts-limit", usize)
             .map_err(Error::InvalidIntegerValue)?,
         global_ticks_limit: value_t!(matches, "global-ticks-limit", usize)
+            .map_err(Error::InvalidIntegerValue)?,
+        max_spawns: value_t!(matches, "max-spawns", usize)
             .map_err(Error::InvalidIntegerValue)?,
     };
 
