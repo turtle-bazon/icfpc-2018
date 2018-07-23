@@ -413,8 +413,6 @@ impl Nanobot {
                                 return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, },
                             Harmonics::Low =>
                                 return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
-                            Harmonics::High if safe_to_remove =>
-                                return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
                             Harmonics::High =>
                                 return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, },
                         }
