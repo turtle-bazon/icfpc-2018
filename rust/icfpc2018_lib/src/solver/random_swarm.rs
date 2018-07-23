@@ -23,8 +23,8 @@ pub enum Error {
     EmptyCommandsBufferForRoute { route: Vec<Coord>, },
     RouteAttempsLimitExceeded { source: Coord, target: Coord, attempts: usize, },
     GlobalTicksLimitExceeded { ticks: usize, voxels_to_do: usize, },
-    NoRouteToVoidDest { start: Coord, finish: Coord, },
-    NoRouteToFillDest { start: Coord, finish: Coord, },
+    NoRouteToVoidDest { start: Coord, finish: Coord, region: Region, },
+    NoRouteToFillDest { start: Coord, finish: Coord, region: Region, },
 }
 
 pub struct Config {
@@ -378,9 +378,8 @@ impl Nanobot {
                     if current_filled && source_filled {
                         return PlanResult::Regular { nanobot: self, cmd: BotCommand::Void { near: job_coord.diff(&target), }, };
                     } else if tower.min == tower.max {
-                        // go somewhere
-                        let target = pick_random_coord(current_model.dim() as isize, rng);
-                        self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                        // get next tower
+                        self.plan = Plan::HeadingFor { goal: Goal::Wander, target, attempts: 0, };
                     } else {
                         tower.max.y -= 1;
                         target.y -= 1;
@@ -398,9 +397,8 @@ impl Nanobot {
                     if !current_filled && target_filled {
                         return PlanResult::Regular { nanobot: self, cmd: BotCommand::Fill { near: job_coord.diff(&target), }, };
                     } else if tower.min == tower.max {
-                        // go somewhere
-                        let target = pick_random_coord(current_model.dim() as isize, rng);
-                        self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                        // get next tower
+                        self.plan = Plan::HeadingFor { goal: Goal::Wander, target, attempts: 0, };
                     } else {
                         tower.min.y += 1;
                         target.y += 1;
@@ -444,16 +442,10 @@ impl Nanobot {
                                         attempts: next_attempts,
                                     };
                                 },
-                                Goal::Void { .. } =>
-                                    return PlanResult::Error(Error::NoRouteToVoidDest {
-                                        start: self.bot.pos,
-                                        finish: target,
-                                    }),
-                                Goal::Fill { .. } =>
-                                    return PlanResult::Error(Error::NoRouteToFillDest {
-                                        start: self.bot.pos,
-                                        finish: target,
-                                    }),
+                                Goal::Void { tower, } =>
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Void { tower, } },
+                                Goal::Fill { tower, } =>
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Fill { tower, } },
                             }
                         Err(error) =>
                             return PlanResult::Error(error),

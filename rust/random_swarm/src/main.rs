@@ -33,7 +33,7 @@ fn main() {
 #[derive(Debug)]
 enum Error {
     MissingParameter(&'static str),
-    InvalidGlobalTicksLimit(clap::Error),
+    InvalidIntegerValue(clap::Error),
     Model(model::Error),
     Solver(random_swarm::Error),
     OutScriptFileCompile(cmd::Error),
@@ -63,6 +63,19 @@ fn run() -> Result<(), Error> {
              .help("Solver global ticks limit parameter")
              .default_value("1024")
              .takes_value(true))
+        .arg(Arg::with_name("rtt-limit")
+             .short("r")
+             .long("rtt-limit")
+             .value_name("LIMIT")
+             .help("Solver RTT router samples limit")
+             .default_value("256")
+             .takes_value(true))
+        .arg(Arg::with_name("route-attempts-limit")
+             .long("route-attempts-limit")
+             .value_name("LIMIT")
+             .help("Solver RTT router attempts limit")
+             .default_value("16")
+             .takes_value(true))
         .get_matches();
 
     let target_model_file = matches.value_of("target-model")
@@ -77,10 +90,12 @@ fn run() -> Result<(), Error> {
     };
     let config = random_swarm::Config {
         init_bots: vec![],
-        rtt_limit: 64,
-        route_attempts_limit: 16,
+        rtt_limit: value_t!(matches, "rtt-limit", usize)
+            .map_err(Error::InvalidIntegerValue)?,
+        route_attempts_limit: value_t!(matches, "route-attempts-limit", usize)
+            .map_err(Error::InvalidIntegerValue)?,
         global_ticks_limit: value_t!(matches, "global-ticks-limit", usize)
-            .map_err(Error::InvalidGlobalTicksLimit)?,
+            .map_err(Error::InvalidIntegerValue)?,
     };
 
     info!("Everything is ready, start solving");
