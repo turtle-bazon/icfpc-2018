@@ -142,6 +142,7 @@ pub fn solve_rng<R>(
             Vec::with_capacity(nanobots_count);
         for nanobot in nanobots {
             let nanobot_pos = nanobot.bot.pos;
+            let dim = current_model.dim() as isize;
             let implement_result =
                 nanobot.implement_plan(
                     &env,
@@ -149,7 +150,11 @@ pub fn solve_rng<R>(
                     work_state,
                     ungrounded_voxel,
                     nanobots_count,
-                    |region| if current_model.contains_filled(region) {
+                    |region| if region.min.x < 0 || region.min.y < 0 || region.min.y < 0 {
+                        false
+                    } else if region.max.x >= dim || region.max.y >= dim || region.max.z >= dim {
+                        false
+                    } else if current_model.contains_filled(region) {
                         false
                     } else if volatiles.iter().any(|reg| reg.intersects(region)) {
                         false
@@ -361,7 +366,11 @@ impl Nanobot {
                                 near: INIT_POS.diff(&self.bot.pos),
                             }),
                         _ =>
-                            self.plan = Plan::HeadingFor { target: INIT_POS, attempts: 0, goal: Goal::Park },
+                            self.plan = Plan::HeadingFor {
+                                target: if self.bid == 1 { INIT_POS } else { Coord { x: 1, y: 0, z: 0, } },
+                                attempts: 0,
+                                goal: Goal::Park,
+                            },
                     };
                 },
         }
@@ -408,13 +417,17 @@ impl Nanobot {
                     let maybe_void_index = void_towers.iter()
                         .enumerate()
                         .min_by_key(|(_, region)| {
-                            (ungrounded_voxel.map(|v| !region.contains(&v)).unwrap_or(true), -region.max.y, dim - region.min.y)
+                            let top_center = Coord { x: dim / 2, y: dim - 1, z: dim / 2, };
+                            let flag = ungrounded_voxel.map(|v| !region.contains(&v)).unwrap_or(true);
+                            (flag, -region.min.y, top_center.diff(&region.min).l_1_norm() + top_center.diff(&region.max).l_1_norm())
                         })
                         .map(|p| p.0);
                     let maybe_fill_index = fill_towers.iter()
                         .enumerate()
                         .min_by_key(|(_, region)| {
-                            (ungrounded_voxel.map(|v| !region.contains(&v)).unwrap_or(true), region.min.y, region.max.y)
+                            let bottom_center = Coord { x: dim / 2, y: 0, z: dim / 2, };
+                            let flag = ungrounded_voxel.map(|v| !region.contains(&v)).unwrap_or(true);
+                            (flag, region.min.y, bottom_center.diff(&region.min).l_1_norm() + bottom_center.diff(&region.max).l_1_norm())
                         })
                         .map(|p| p.0);
                     self.plan = if let Some(index) = maybe_void_index {
@@ -440,8 +453,9 @@ impl Nanobot {
                             attempts: 0,
                         }
                     } else {
-                        // no jobs left, but model isn't fully printed yet: go wandering
-                        let target = pick_random_coord(current_model.dim() as isize, rng);
+                        // no jobs left, but model isn't fully printed yet: go to left side
+                        let mut target = pick_random_coord(current_model.dim() as isize, rng);
+                        target.x = 0;
                         Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, }
                     };
                 },
@@ -507,18 +521,25 @@ impl Nanobot {
                                 },
                                 Goal::Park => {
                                     // try to find a free position nearby
-                                    let next_attempts = attempts + 1;
-                                    let offset = (next_attempts / 3) as isize;
-                                    let axis = next_attempts % 3;
                                     self.plan = Plan::HeadingFor {
                                         goal: Goal::Park,
-                                        target: Coord {
-                                            x: target.x + if axis == 0 { offset } else { 0 },
-                                            y: target.y + if axis == 1 { offset } else { 0 },
-                                            z: target.z + if axis == 2 { offset } else { 0 },
-                                        },
-                                        attempts: next_attempts,
+                                        target: if self.bid == 1 { INIT_POS } else { Coord { x: 1, y: 0, z: 0, } },
+                                        attempts: attempts + 1,
                                     };
+                                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
+
+                                    // let next_attempts = attempts + 1;
+                                    // let offset = (next_attempts % current_model.dim()) as isize;
+                                    // let axis = next_attempts % 2;
+                                    // self.plan = Plan::HeadingFor {
+                                    //     goal: Goal::Park,
+                                    //     target: Coord {
+                                    //         x: if axis == 0 { offset } else { 0 },
+                                    //         y: offset,
+                                    //         z: if axis == 1 { offset } else { 0 },
+                                    //     },
+                                    //     attempts: next_attempts,
+                                    // };
                                 },
                                 Goal::Void { tower, } => {
                                     self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Void { tower, } };

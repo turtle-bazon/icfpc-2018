@@ -256,7 +256,9 @@ impl Matrix {
 
     pub fn is_filled(&self, coord: &Coord) -> bool {
         let offset = (coord.x as usize * self.dim * self.dim) + (coord.y as usize * self.dim) + coord.z as usize;
-        assert!(offset < self.field.len());
+        if offset >= self.field.len() {
+            panic!("out of bounds `Matrix::is_filled` check for {:?} size {} x {} x {}", coord, self.dim, self.dim, self.dim);
+        }
         self.field[offset]
     }
 
@@ -267,15 +269,15 @@ impl Matrix {
                 return true;
             }
             coord.z += 1;
-            if coord.z > region.max.z {
+            if coord.z > region.max.z || coord.z >= self.dim() as isize {
                 coord.z = region.min.z;
                 coord.y += 1;
             }
-            if coord.y > region.max.y {
+            if coord.y > region.max.y || coord.y >= self.dim() as isize {
                 coord.y = region.min.y;
                 coord.x += 1;
             }
-            if coord.x > region.max.x {
+            if coord.x > region.max.x || coord.x >= self.dim() as isize {
                 return false;
             }
         }
