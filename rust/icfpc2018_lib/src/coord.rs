@@ -539,4 +539,26 @@ mod tests {
             max: Coord { x: 2, y: 2, z: 2, },
         }));
     }
+
+    #[test]
+    fn will_be_grounded() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![Coord { x: 1, y: 0, z: 1, },]);
+        assert!(matrix.will_be_grounded(&Coord { x: 1, y: 1, z: 1, }));
+        assert!(matrix.will_be_grounded(&Coord { x: 0, y: 0, z: 0, }));
+        assert!(!matrix.will_be_grounded(&Coord { x: 1, y: 2, z: 1, }));
+        assert!(!matrix.will_be_grounded(&Coord { x: 0, y: 1, z: 1, }));
+    }
+
+    #[test]
+    fn tower_all_voxels_are_grounded() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 1, },
+            Coord { x: 1, y: 1, z: 1, },
+            Coord { x: 1, y: 2, z: 1, },
+        ]);
+        assert!(super::all_voxels_are_grounded(matrix.filled_voxels().cloned().collect()));
+        assert!(super::all_voxels_are_grounded(matrix.filled_voxels().cloned().filter(|v| v.y != 2).collect()));
+        assert!(!super::all_voxels_are_grounded(matrix.filled_voxels().cloned().filter(|v| v.y != 1).collect()));
+        assert!(!super::all_voxels_are_grounded(matrix.filled_voxels().cloned().filter(|v| v.y != 0).collect()));
+    }
 }
