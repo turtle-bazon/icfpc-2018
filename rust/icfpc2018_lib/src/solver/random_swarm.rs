@@ -23,7 +23,7 @@ const INIT_POS: Coord = Coord { x: 0, y: 0, z: 0, };
 pub enum Error {
     ModelsDimMismatch { source_dim: usize, target_dim: usize, },
     EmptyCommandsBufferForRoute { route: Vec<Coord>, },
-    RouteAttempsLimitExceeded(usize),
+    RouteAttempsLimitExceeded { source: Coord, target: Coord, attempts: usize, },
     GlobalTicksLimitExceeded(usize),
 }
 
@@ -297,10 +297,12 @@ impl Nanobot {
                 },
                 Plan::HeadingFor { target, .. } if target == self.bot.pos => {
                     // reached a target
+                    println!(" ;; successfully reached {:?}", target);
 
                     // check if there is a job nearby
                     for neighbour_coord in target.get_neighbours_limit(current_model.dim() as isize) {
                         if let Some(cmd) = try_perform_job(&target, &neighbour_coord, env, current_model) {
+                            println!("  == performing job : {:?}", cmd);
                             return PlanResult::Regular { nanobot: self, cmd, };
                         }
                     }
@@ -345,6 +347,10 @@ impl Nanobot {
                                     route_and_step(&target, &possible_target, current_model, &is_passable, commands_buf, env.config.rtt_limit, rng);
                                 match route_result {
                                     Ok(Some(moving_cmd)) => {
+
+                                        println!(" ;; found new job at {:?} moving from {:?}, performing {:?}",
+                                                 possible_target, target, moving_cmd);
+
                                         self.plan = Plan::HeadingFor { target: possible_target, attempts: 0, };
                                         return PlanResult::Regular { nanobot: self, cmd: moving_cmd, };
                                     },
@@ -359,13 +365,20 @@ impl Nanobot {
                         }
                     }
                     // no job could be found, go somewhere
+                    let wandering_target = pick_random_coord(current_model.dim() as isize, rng);
+                    println!(" ;; no job could be found, wandering from {:?} to {:?}", target, wandering_target);
+                    println!("  == original is {}", if is_passable(&Region { min: target, max: target, }) { "passable" } else { "blocked" });
                     self.plan = Plan::HeadingFor {
-                        target: pick_random_coord(current_model.dim() as isize, rng),
+                        target: wandering_target,
                         attempts: 0,
                     };
                 },
-                Plan::HeadingFor { attempts, .. } if attempts > env.config.route_attempts_limit =>
-                    return PlanResult::Error(Error::RouteAttempsLimitExceeded(attempts)),
+                Plan::HeadingFor { target, attempts, } if attempts > env.config.route_attempts_limit =>
+                    return PlanResult::Error(Error::RouteAttempsLimitExceeded {
+                        source: self.bot.pos,
+                        target,
+                        attempts,
+                    }),
                 Plan::HeadingFor { target, attempts, } => {
                     // still moving to target
                     let route_result =
@@ -373,10 +386,15 @@ impl Nanobot {
                     match route_result {
                         Ok(Some(moving_cmd)) => {
                             // can continue moving
+                            println!("   -- can continue moving from {:?} to {:?} with {:?}", self.bot.pos, target, moving_cmd);
+
+                            self.plan = Plan::HeadingFor { target, attempts: 0, };
                             return PlanResult::Regular { nanobot: self, cmd: moving_cmd, };
                         },
                         Ok(None) => {
                             // can not move there
+                            println!("   -- can not move from {:?} to {:?}", self.bot.pos, target);
+
                             match work_state {
                                 WorkState::InProgress => {
                                     // pick another wandering target
@@ -796,47 +814,30 @@ mod test {
             },
             &mut rng,
         ).unwrap();
-        assert_eq!(
-            script,
-            vec![
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 2 } },
-                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: 1, z: -1 }) },
-                BotCommand::Fill { near: CoordDiff(Coord { x: 1, y: 1, z: 0 }) },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
-                    short2: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
-                },
-                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: 1, z: 0 }) },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 2 },
-                },
-                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: 1, z: -1 }) },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
-                    short2: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
-                },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 1 },
-                },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
-                },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: 2 },
-                },
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } },
-                BotCommand::Void { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::X, value: -2 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
-                },
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: -2 } },
-                BotCommand::Halt,
-            ],
-        );
+        assert_eq!(script.iter().filter(|cmd| if let BotCommand::Fill { .. } = cmd { true } else { false }).count(), 4);
+        assert_eq!(script.iter().filter(|cmd| if let BotCommand::Void { .. } = cmd { true } else { false }).count(), 1);
+        assert_eq!(script.last(), Some(&BotCommand::Halt));
+    }
+
+    #[test]
+    fn solve_la008_tgt_mdl() {
+        use rand::{SeedableRng, prng::XorShiftRng};
+        use super::super::super::junk::LA008_TGT_MDL;
+        let target_model = super::super::super::model::read_model(LA008_TGT_MDL).unwrap();
+        let mut rng: XorShiftRng =
+            SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let source_model = Matrix::new(Resolution(target_model.dim() as isize));
+        let _script = super::solve_rng(
+            source_model,
+            target_model,
+            super::Config {
+                init_bots: vec![],
+                rtt_limit: 64,
+                route_attempts_limit: 64,
+                global_ticks_limit: 100,
+            },
+            &mut rng,
+        ).unwrap();
+
     }
 }
