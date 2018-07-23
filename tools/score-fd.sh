@@ -7,7 +7,7 @@ MODEL=${TRACE/traces/problems}
 MODEL=${MODEL/.nbt/_src.mdl}
 
 echo "$TRACE: Start processing"
-ORIG_SCORE=$(rust/scorer/target/release/scorer -t $TRACE -s $MODEL | grep 'FINAL ENERGY' | cut -f4 -d ' ') \
+ORIG_SCORE=$(rust/scorer/target/release/scorer -t $TRACE -s $MODEL | grep 'FINAL ENERGY' | cut -f4 -d ' ')
 if [ "$ORIG_SCORE" == "" ]; then
     echo "$TRACE: unable to score orig trace"
     exit 1
