@@ -32,8 +32,8 @@ fn main() {
 
 #[derive(Debug)]
 enum Error {
-    MissingParameter(&'static str),
     InvalidIntegerValue(clap::Error),
+    NoSourceOrTargetModelProvided,
     Model(model::Error),
     Solver(random_swarm::Error),
     OutScriptFileCompile(cmd::Error),
@@ -54,7 +54,6 @@ fn run() -> Result<(), Error> {
              .long("target-model")
              .value_name("FILE")
              .help("Target model")
-             .default_value("../../problems/FA004_tgt.mdl")
              .takes_value(true))
         .arg(Arg::with_name("global-ticks-limit")
              .short("l")
@@ -77,17 +76,26 @@ fn run() -> Result<(), Error> {
              .default_value("16")
              .takes_value(true))
         .get_matches();
+    let (source_model, target_model) =
+        if let Some(source_model_file) = matches.value_of("source-model") {
+            if let Some(target_model_file) = matches.value_of("target-model") {
+                (model::read_model_file(source_model_file).map_err(Error::Model)?,
+                 model::read_model_file(target_model_file).map_err(Error::Model)?)
+            } else {
+                let source_model = model::read_model_file(source_model_file).map_err(Error::Model)?;
+                let target_model = Matrix::new(Resolution(source_model.dim() as M));
+                (source_model, target_model)
+            }
+        } else {
+            if let Some(target_model_file) = matches.value_of("target-model") {
+                let target_model = model::read_model_file(target_model_file).map_err(Error::Model)?;
+                let source_model = Matrix::new(Resolution(target_model.dim() as M));
+                (source_model, target_model)
+            } else {
+                return Err(Error::NoSourceOrTargetModelProvided);
+            }
+        };
 
-    let target_model_file = matches.value_of("target-model")
-        .ok_or(Error::MissingParameter("target-model"))?;
-    let target_model = model::read_model_file(target_model_file)
-            .map_err(Error::Model)?;
-    let source_model = if let Some(source_model_file) = matches.value_of("souce-model") {
-        model::read_model_file(source_model_file)
-            .map_err(Error::Model)?
-    } else {
-        Matrix::new(Resolution(target_model.dim() as M))
-    };
     let config = random_swarm::Config {
         init_bots: vec![],
         rtt_limit: value_t!(matches, "rtt-limit", usize)
