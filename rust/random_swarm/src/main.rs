@@ -92,19 +92,13 @@ fn run() -> Result<(), Error> {
         &mut rand::thread_rng(),
     );
 
-    let script = match solve_result {
+    let (script, status) = match solve_result {
         Ok(script) =>
-            script,
-        Err(random_swarm::Error::GlobalTicksLimitExceeded { ticks, script_so_far, voxels_to_do, }) => {
-            warn!("global ticks limit exceeded ({}), {} voxels undone, saving script of {} commands",
-                  ticks,
-                  voxels_to_do,
-                  script_so_far.len());
-            script_so_far
-        },
-        Err(error) =>
-            return Err(Error::Solver(error)),
+            (script, Ok(())),
+        Err((error, script)) =>
+            (script, Err(Error::Solver(error))),
     };
+    info!("saving script of {} commands", script.len());
 
     let trace = cmd::into_bytes(&script)
         .map_err(Error::OutScriptFileCompile)?;
@@ -113,7 +107,5 @@ fn run() -> Result<(), Error> {
     let mut writer = io::BufWriter::new(file);
     writer.write_all(&trace)
         .map_err(Error::OutScriptFileWrite)?;
-
-    info!("All done!");
-    Ok(())
+    status
 }

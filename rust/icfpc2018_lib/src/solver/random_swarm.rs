@@ -1,10 +1,8 @@
-use std::collections::{
-    BinaryHeap,
-};
 use rand::{self, Rng};
 
 use super::super::{
     coord::{
+        self,
         Coord,
         Matrix,
         Region,
@@ -24,7 +22,7 @@ pub enum Error {
     ModelsDimMismatch { source_dim: usize, target_dim: usize, },
     EmptyCommandsBufferForRoute { route: Vec<Coord>, },
     RouteAttempsLimitExceeded { source: Coord, target: Coord, attempts: usize, },
-    GlobalTicksLimitExceeded { ticks: usize, script_so_far: Vec<BotCommand>, voxels_to_do: usize, },
+    GlobalTicksLimitExceeded { ticks: usize, voxels_to_do: usize, },
     NoRouteToVoidDest { start: Coord, finish: Coord, },
     NoRouteToFillDest { start: Coord, finish: Coord, },
 }
@@ -36,15 +34,23 @@ pub struct Config {
     pub global_ticks_limit: usize,
 }
 
-pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Result<Vec<BotCommand>, Error> {
+pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Result<Vec<BotCommand>, (Error, Vec<BotCommand>)> {
     solve_rng(source_model, target_model, config, &mut rand::thread_rng())
 }
 
-pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, rng: &mut R) -> Result<Vec<BotCommand>, Error> where R: Rng {
+pub fn solve_rng<R>(
+    source_model: Matrix,
+    target_model: Matrix,
+    config: Config,
+    rng: &mut R,
+)
+    -> Result<Vec<BotCommand>, (Error, Vec<BotCommand>)> where
+    R: Rng
+{
     let source_dim = source_model.dim();
     let target_dim = target_model.dim();
     if source_dim != target_dim {
-        return Err(Error::ModelsDimMismatch { source_dim, target_dim, });
+        return Err((Error::ModelsDimMismatch { source_dim, target_dim, }, vec![]));
     }
     let env = Env::new(source_model, target_model, config);
     let mut current_model = env.source_model.clone();
@@ -53,14 +59,8 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
     let mut volatiles: Vec<Region> = Vec::new();
     let mut positions: Vec<Coord> = Vec::new();
 
-    let mut void_towers: BinaryHeap<(isize, isize, isize, Region)> = make_towers(&env.source_model)
-        .into_iter()
-        .map(|reg| (reg.min.y, -reg.min.z, -reg.min.x, reg))
-        .collect();
-    let mut fill_towers: BinaryHeap<(isize, isize, isize, Region)> = make_towers(&env.target_model)
-        .into_iter()
-        .map(|reg| (-reg.min.y, -reg.min.z, -reg.min.x, reg))
-        .collect();
+    let mut void_towers = make_towers(&env.source_model);
+    let mut fill_towers = make_towers(&env.target_model);
 
     let mut nanobots = if env.config.init_bots.is_empty() {
         let (init_bid, init_bot) = Nanobot::init_bot();
@@ -93,11 +93,10 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
                     voxels_to_do += 1;
                 }
             }
-            return Err(Error::GlobalTicksLimitExceeded {
+            return Err((Error::GlobalTicksLimitExceeded {
                 ticks: ticks_count,
-                script_so_far: script,
                 voxels_to_do,
-            });
+            }, script));
         }
         // check for stop condition
         let work_state = if work_complete || current_model.equals(&env.target_model) {
@@ -210,7 +209,7 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
                     next_nanobots.push(child);
                 },
                 PlanResult::Error(error) =>
-                    return Err(error),
+                    return Err((error, script)),
             }
         }
         nanobots = next_nanobots;
@@ -287,8 +286,8 @@ impl Nanobot {
         work_state: WorkState,
         is_passable: FP,
         commands_buf: &mut Vec<(Coord, BotCommand)>,
-        void_towers: &mut BinaryHeap<(isize, isize, isize, Region)>,
-        fill_towers: &mut BinaryHeap<(isize, isize, isize, Region)>,
+        void_towers: &mut Vec<Region>,
+        fill_towers: &mut Vec<Region>,
         rng: &mut R,
     )
         -> PlanResult where FP: Fn(&Region) -> bool, R: Rng,
@@ -335,8 +334,17 @@ impl Nanobot {
                     }),
                 Plan::HeadingFor { goal: Goal::Park, target, .. } if target == self.bot.pos =>
                     unreachable!(),
-                Plan::HeadingFor { goal: Goal::Wander, target, .. } if target == self.bot.pos =>
-                    self.plan = if let Some((_, _, _, void_region)) = void_towers.pop() {
+                Plan::HeadingFor { goal: Goal::Wander, target, .. } if target == self.bot.pos => {
+                    let maybe_void_index = void_towers
+                        .iter()
+                        .position(|region| coord::all_voxels_are_grounded(
+                            current_model.filled_voxels().cloned().filter(|voxel| !region.contains(voxel)).collect()
+                        ));
+                    let maybe_fill_index = fill_towers
+                        .iter()
+                        .position(|region| current_model.will_be_grounded(&region.min));
+                    self.plan = if let Some(index) = maybe_void_index {
+                        let void_region = void_towers.swap_remove(index);
                         Plan::HeadingFor {
                             goal: Goal::Void { tower: void_region, },
                             target: Coord {
@@ -346,7 +354,8 @@ impl Nanobot {
                             },
                             attempts: 0,
                         }
-                    } else if let Some((_, _, _, fill_region)) = fill_towers.pop() {
+                    } else if let Some(index) = maybe_fill_index {
+                        let fill_region = fill_towers.swap_remove(index);
                         Plan::HeadingFor {
                             goal: Goal::Fill { tower: fill_region, },
                             target: Coord {
@@ -360,7 +369,8 @@ impl Nanobot {
                         // go somewhere
                         let target = pick_random_coord(current_model.dim() as isize, rng);
                         Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, }
-                    },
+                    };
+                },
                 Plan::HeadingFor { goal: Goal::Void { mut tower, }, mut target, .. } if target == self.bot.pos => {
                     let job_coord = tower.max;
                     let current_filled = current_model.is_filled(&job_coord);

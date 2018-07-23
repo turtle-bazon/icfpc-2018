@@ -552,6 +552,13 @@ mod tests {
         assert!(matrix.will_be_grounded(&Coord { x: 0, y: 0, z: 0, }));
         assert!(!matrix.will_be_grounded(&Coord { x: 1, y: 2, z: 1, }));
         assert!(!matrix.will_be_grounded(&Coord { x: 0, y: 1, z: 1, }));
+
+        let matrix = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 1, },
+            Coord { x: 1, y: 1, z: 1, },
+            Coord { x: 1, y: 2, z: 1, },
+        ]);
+        assert!(!matrix.will_be_grounded(&Coord { x: 2, y: 1, z: 0, }));
     }
 
     #[test]
