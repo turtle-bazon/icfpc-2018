@@ -1,10 +1,12 @@
+extern crate rand;
 extern crate env_logger;
 extern crate icfpc2018_lib;
 #[macro_use] extern crate log;
 #[macro_use] extern crate clap;
 
-use std::process;
+use std::{io::{self, Write}, fs, process};
 use clap::Arg;
+use rand::{SeedableRng, prng::XorShiftRng};
 
 use icfpc2018_lib::{
     coord::{
@@ -12,7 +14,9 @@ use icfpc2018_lib::{
         Matrix,
         Resolution,
     },
+    cmd,
     model,
+    solver::random_swarm,
 };
 
 fn main() {
@@ -31,6 +35,10 @@ fn main() {
 enum Error {
     MissingParameter(&'static str),
     Model(model::Error),
+    Solver(random_swarm::Error),
+    OutScriptFileCompile(cmd::Error),
+    OutScriptFileOpen(io::Error),
+    OutScriptFileWrite(io::Error),
 }
 
 fn run() -> Result<(), Error> {
@@ -61,5 +69,39 @@ fn run() -> Result<(), Error> {
         Matrix::new(Resolution(target_model.dim() as M))
     };
 
-    unimplemented!()
+    let mut rng: XorShiftRng =
+        SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+    let solve_result = random_swarm::solve_rng(
+        source_model,
+        target_model,
+        random_swarm::Config {
+            init_bots: vec![],
+            rtt_limit: 64,
+            route_attempts_limit: 16,
+            global_ticks_limit: 100,
+        },
+        &mut rng,
+    );
+
+    let script = match solve_result {
+        Ok(script) =>
+            script,
+        Err(random_swarm::Error::GlobalTicksLimitExceeded { ticks, script_so_far, }) => {
+            warn!("global ticks limit exceeded ({}), saving script of {} commands", ticks, script_so_far.len());
+            script_so_far
+        },
+        Err(error) =>
+            return Err(Error::Solver(error)),
+    };
+
+    let trace = cmd::into_bytes(&script)
+        .map_err(Error::OutScriptFileCompile)?;
+    let file = fs::File::create("a.nbt")
+        .map_err(Error::OutScriptFileOpen)?;
+    let mut writer = io::BufWriter::new(file);
+    writer.write_all(&trace)
+        .map_err(Error::OutScriptFileWrite)?;
+
+    Ok(())
 }

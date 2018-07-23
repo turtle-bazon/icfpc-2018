@@ -24,14 +24,14 @@ pub enum Error {
     ModelsDimMismatch { source_dim: usize, target_dim: usize, },
     EmptyCommandsBufferForRoute { route: Vec<Coord>, },
     RouteAttempsLimitExceeded { source: Coord, target: Coord, attempts: usize, },
-    GlobalTicksLimitExceeded { ticks: usize, script_len: usize, },
+    GlobalTicksLimitExceeded { ticks: usize, script_so_far: Vec<BotCommand>, },
 }
 
 pub struct Config {
-    init_bots: Vec<(Bid, Bot)>,
-    rtt_limit: usize,
-    route_attempts_limit: usize,
-    global_ticks_limit: usize,
+    pub init_bots: Vec<(Bid, Bot)>,
+    pub rtt_limit: usize,
+    pub route_attempts_limit: usize,
+    pub global_ticks_limit: usize,
 }
 
 pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Result<Vec<BotCommand>, Error> {
@@ -73,7 +73,7 @@ pub fn solve_rng<R>(source_model: Matrix, target_model: Matrix, config: Config, 
         if ticks_count >= env.config.global_ticks_limit {
             return Err(Error::GlobalTicksLimitExceeded {
                 ticks: ticks_count,
-                script_len: script.len(),
+                script_so_far: script,
             });
         }
         // check for stop condition

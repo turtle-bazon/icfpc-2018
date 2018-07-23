@@ -7,4 +7,5 @@ authors = ["Alexey Voznyuk <me@swizard.info>"]
 icfpc2018_lib = { path = "../icfpc2018_lib" }
 log = "0.4"
 clap = "2.32"
+rand = "0.5"
 env_logger = "0.5"
