@@ -75,6 +75,13 @@ fn run() -> Result<(), Error> {
              .help("Solver RTT router attempts limit")
              .default_value("16")
              .takes_value(true))
+        .arg(Arg::with_name("output")
+             .short("o")
+             .long("output")
+             .value_name("FILE")
+             .help("Trace file output")
+             .default_value("a.nbt")
+             .takes_value(true))
         .get_matches();
     let (source_model, target_model) =
         if let Some(source_model_file) = matches.value_of("source-model") {
@@ -128,7 +135,8 @@ fn run() -> Result<(), Error> {
 
     let trace = cmd::into_bytes(&script)
         .map_err(Error::OutScriptFileCompile)?;
-    let file = fs::File::create("a.nbt")
+    let output_filename = value_t!(matches, "output", String).unwrap();
+    let file = fs::File::create(output_filename)
         .map_err(Error::OutScriptFileOpen)?;
     let mut writer = io::BufWriter::new(file);
     writer.write_all(&trace)

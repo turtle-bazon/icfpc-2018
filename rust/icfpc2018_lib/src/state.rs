@@ -502,6 +502,68 @@ impl State {
             }
         }
     }
+
+
+    
+    pub fn stateless_step(&mut self, commands: &Vec<BotCommand>, next_command: &mut usize) -> Result<(), Error> {
+        /* check there are enough commands */
+        let bids: Vec<Bid> = self.bots.keys().cloned().collect();
+
+        let len = self.bots.len();
+        for (bid, cmd) in bids.iter().zip(commands[*next_command .. (*next_command + len)].iter()) {
+            self.perform_mut(bid, &cmd);
+        }
+        *next_command += len;
+        
+        Ok(())
+    }
+
+    pub fn stateless_run(&mut self, commands: &Vec<BotCommand>) -> Result<Vec<Wellness>, Error> {
+        // let mut step_counter = 0;
+        let mut next_command = 0;
+        let mut res = Vec::new();
+        let mut nc = 0;
+        let mut bl = self.bots.len();
+        res.push(Wellness {
+            ok: self.matrix.all_voxels_are_grounded(),
+            bots: bl,
+            offset: nc,
+        });
+        loop {
+            nc = next_command;
+            bl = self.bots.len();
+            self.steps += 1;
+            match self.stateless_step(commands, &mut next_command) {
+                Err(e) => return Err(e),
+                Ok(()) => {}
+            }
+            if self.matrix.all_voxels_are_grounded() {
+                res.push(Wellness {
+                    ok: true,
+                    bots: self.bots.len(),
+                    offset: next_command,
+                });
+            } else {
+                res.push(Wellness {
+                    ok: false,
+                    bots: bl,
+                    offset: nc,
+                });
+            }
+
+            if next_command>=commands.len() {
+                return Ok(res)
+            }
+        }
+    }
+    
+}
+
+#[derive(Debug,Copy,Clone)]
+pub struct Wellness {
+    pub ok: bool,
+    pub bots: usize,
+    pub offset: usize,
 }
 
 #[cfg(test)]
