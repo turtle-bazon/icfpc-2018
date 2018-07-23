@@ -140,6 +140,7 @@ fn run() -> Result<(), Error> {
     let opengl = OpenGL::V4_1;
     let mut window: PistonWindow = WindowSettings::new("icfpc2018 visualizer", [SCREEN_WIDTH, SCREEN_HEIGHT])
         .exit_on_esc(true)
+        .samples(4)
         .opengl(opengl)
         .build()
         .map_err(PistonError::BuildWindow)
