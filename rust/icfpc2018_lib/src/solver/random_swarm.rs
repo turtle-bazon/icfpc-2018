@@ -33,6 +33,7 @@ pub struct Config {
     pub rtt_limit: usize,
     pub route_attempts_limit: usize,
     pub global_ticks_limit: usize,
+    pub max_spawns: usize,
 }
 
 pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Result<Vec<BotCommand>, (Error, Vec<BotCommand>)> {
@@ -133,8 +134,9 @@ pub fn solve_rng<R>(
         positions.clear();
         positions.extend(nanobots.iter().map(|nanobot| nanobot.bot.pos));
 
+        let mut nanobots_count = nanobots.len();
         let mut next_nanobots =
-            Vec::with_capacity(nanobots.len());
+            Vec::with_capacity(nanobots_count);
         for nanobot in nanobots {
             let nanobot_pos = nanobot.bot.pos;
             let implement_result =
@@ -143,6 +145,7 @@ pub fn solve_rng<R>(
                     &current_model,
                     work_state,
                     harmonics,
+                    nanobots_count,
                     |region| if current_model.contains_filled(region) {
                         false
                     } else if volatiles.iter().any(|reg| reg.intersects(region)) {
@@ -161,12 +164,13 @@ pub fn solve_rng<R>(
             let mut interpret = |nanobot: &mut Nanobot, cmd: &BotCommand| match cmd {
                 &BotCommand::Halt |
                 &BotCommand::Wait |
-                &BotCommand::Fission { .. } |
                 &BotCommand::FusionP{ .. } |
                 &BotCommand::FusionS{ .. } |
                 &BotCommand::GFill { .. } |
                 &BotCommand::GVoid { .. } =>
                     (),
+                &BotCommand::Fission { .. } =>
+                    nanobots_count += 1,
                 &BotCommand::Flip =>
                     harmonics = match harmonics {
                         Harmonics::Low => Harmonics::High,
@@ -275,7 +279,6 @@ enum WorkState {
     },
 }
 
-#[allow(dead_code)]
 enum PlanResult {
     DoAndPerish(BotCommand),
     Regular { nanobot: Nanobot, cmd: BotCommand, },
@@ -297,6 +300,7 @@ impl Nanobot {
         current_model: &Matrix,
         work_state: WorkState,
         harmonics: Harmonics,
+        nanobots_count: usize,
         is_passable: FP,
         commands_buf: &mut Vec<(Coord, BotCommand)>,
         void_towers: &mut Vec<Region>,
@@ -353,6 +357,23 @@ impl Nanobot {
                 Plan::HeadingFor { goal: Goal::Park, target, .. } if target == self.bot.pos =>
                     unreachable!(),
                 Plan::HeadingFor { goal: Goal::Wander, target, .. } if target == self.bot.pos => {
+                    // spawn if able to
+                    if self.bot.seeds.len() > 0 && nanobots_count < env.config.max_spawns {
+                        if let Some(pos) = target.get_neighbours().find(|&p| is_passable(&Region { min: p, max: p, })) {
+                            let child = Nanobot {
+                                bid: self.bot.seeds.remove(0),
+                                bot: Bot { pos, seeds: vec![], },
+                                plan: Plan::Init,
+                            };
+                            return PlanResult::Spawn {
+                                parent: self,
+                                child,
+                                cmd: BotCommand::Fission { near: pos.diff(&target), split_m: 0, },
+                            };
+                        }
+                    }
+
+                    // take a job if any
                     let maybe_void_index = match harmonics {
                         Harmonics::Low =>
                             void_towers.iter().position(|region| coord::all_voxels_are_grounded(
@@ -668,6 +689,7 @@ mod test {
             rtt_limit: 64,
             route_attempts_limit: 16,
             global_ticks_limit: 100,
+            max_spawns: 1,
         }).unwrap();
         assert_eq!(script, vec![BotCommand::Halt]);
     }
@@ -687,6 +709,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -717,6 +740,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -762,6 +786,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -811,6 +836,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -853,6 +879,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -898,6 +925,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -950,6 +978,7 @@ mod test {
                 rtt_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
+                max_spawns: 1,
             },
             &mut rng,
         ).unwrap();
@@ -958,25 +987,26 @@ mod test {
         assert_eq!(script.last(), Some(&BotCommand::Halt));
     }
 
-    // #[test]
-    // fn solve_la008_tgt_mdl() {
-    //     use rand::{SeedableRng, prng::XorShiftRng};
-    //     use super::super::super::junk::LA008_TGT_MDL;
-    //     let target_model = super::super::super::model::read_model(LA008_TGT_MDL).unwrap();
-    //     let mut rng: XorShiftRng =
-    //         SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    //     let source_model = Matrix::new(Resolution(target_model.dim() as isize));
-    //     let _script = super::solve_rng(
-    //         source_model,
-    //         target_model,
-    //         super::Config {
-    //             init_bots: vec![],
-    //             rtt_limit: 64,
-    //             route_attempts_limit: 64,
-    //             global_ticks_limit: 4096,
-    //         },
-    //         &mut rng,
-    //     ).unwrap();
-
-    // }
+    #[test]
+    fn solve_la008_tgt_mdl() {
+        use rand::{SeedableRng, prng::XorShiftRng};
+        use super::super::super::junk::LA008_TGT_MDL;
+        let target_model = super::super::super::model::read_model(LA008_TGT_MDL).unwrap();
+        let mut rng: XorShiftRng =
+            SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let source_model = Matrix::new(Resolution(target_model.dim() as isize));
+        let script = super::solve_rng(
+            source_model,
+            target_model,
+            super::Config {
+                init_bots: vec![],
+                rtt_limit: 256,
+                route_attempts_limit: 512,
+                global_ticks_limit: 4096,
+                max_spawns: 1,
+            },
+            &mut rng,
+        ).unwrap();
+        assert_eq!(script.last(), Some(&BotCommand::Halt));
+    }
 }
