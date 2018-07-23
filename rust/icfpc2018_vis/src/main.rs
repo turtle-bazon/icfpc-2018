@@ -360,8 +360,8 @@ fn run() -> Result<(), Error> {
                             let maybe_route = router::rtt::plan_route(
                                 &nanobot,
                                 &cursor,
-                                &filled_matrix,
-                                None.into_iter(),
+                                filled_matrix.dim(),
+                                |region| !filled_matrix.contains_filled(region),
                                 matrix.dim() * matrix.dim() * matrix.dim(),
                             );
                             if let Some(route) = maybe_route {

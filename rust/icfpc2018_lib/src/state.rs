@@ -3,6 +3,8 @@ use std::mem;
 
 use super::{
     coord::{
+        Axis,
+        LinearCoordDiff,
         Coord,
         Matrix,
         Region,
@@ -110,13 +112,17 @@ impl State {
         self.bots.get(bid).map(|bot| bot.pos)
     }
 
-    pub fn check_precondition(&self, bid: &Bid, cmd: &BotCommand) -> Result<HashSet<Coord>, Error> {
+    pub fn is_halt(&self) -> bool {
+        self.bots.is_empty()
+    }
+
+    pub fn check_precondition(&self, bid: &Bid, cmd: &BotCommand) -> Result<(Region, Option<Region>), Error> {
         if let None = self.bots.get(bid) {
             return Err(Error::InvalidBid{bid:*bid})
         }
 
-        let c = self.bots.get(&bid).unwrap().pos;
-        let mut volatile: HashSet<Coord> = [c].iter().cloned().collect();
+        let c = self.bot_pos(&bid).unwrap();
+        let bot_reg = Region::from_corners(&c,&c);
 
         match cmd {
             BotCommand::Halt => {
@@ -126,14 +132,14 @@ impl State {
                 let check_low = self.harmonics == Harmonics::Low;
 
                 match (check_coord, check_the_only_bot, check_low) {
-                    (true, true, true) => (),
+                    (true, true, true) => Ok((bot_reg, None)),
                     (false, _, _) => return Err(Error::HaltNotAtZeroCoord),
                     (_, false, _) => return Err(Error::HaltTooManyBots),
                     (_, _, false) => return Err(Error::HaltNotInLow),
                 }
             },
-            BotCommand::Wait => (),
-            BotCommand::Flip => (),
+            BotCommand::Wait => Ok((bot_reg, None)),
+            BotCommand::Flip => Ok((bot_reg, None)),
             BotCommand::SMove{ long } => {
                 let d = long.to_coord_diff();
                 let cf = c.add(d);
@@ -147,9 +153,7 @@ impl State {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg})
                 }
 
-                for c in volatile_reg.coord_set().iter() {
-                    volatile.insert(*c);
-                }
+                Ok((volatile_reg, None))
             },
             BotCommand::LMove{ short1, short2 } => {
                 let d1 = short1.to_coord_diff();
@@ -168,14 +172,42 @@ impl State {
                 if !self.matrix.is_valid_coord(&cff) {
                     return Err(Error::MoveOutOfBounds{c: cff})
                 }
-                let volatile_reg2 = Region::from_corners(&cf, &cff);
+
+                let volatile_reg2 = match short2 {
+                    LinearCoordDiff::Short{axis,value} =>
+                        match axis {
+                            Axis::X => {
+                                if *value > 0 {
+                                    Region::from_corners(&Coord { x: cf.x + 1, y: cf.y, z: cf.z, }, &cff)
+                                }
+                                else {
+                                    Region::from_corners(&Coord { x: cf.x - 1, y: cf.y, z: cf.z, }, &cff)
+                                }
+                            },
+                            Axis::Y => {
+                                if *value > 0 {
+                                    Region::from_corners(&Coord { x: cf.x, y: cf.y + 1, z: cf.z, }, &cff)
+                                }
+                                else {
+                                    Region::from_corners(&Coord { x: cf.x, y: cf.y - 1, z: cf.z, }, &cff)
+                                }
+                            }
+                            Axis::Z => {
+                                if *value > 0 {
+                                    Region::from_corners(&Coord { x: cf.x, y: cf.y, z: cf.z + 1, }, &cff)
+                                }
+                                else {
+                                    Region::from_corners(&Coord { x: cf.x, y: cf.y, z: cf.z - 1, }, &cff)
+                                }
+                            }
+                        },
+                    _ => panic!("Unexpected diff!"),
+                };
                 if self.matrix.contains_filled(&volatile_reg2) {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg2})
                 }
 
-                for c in volatile_reg.coord_set().union(&volatile_reg2.coord_set()) {
-                    volatile.insert(*c);
-                }
+                Ok((volatile_reg, Some(volatile_reg2)))
             },
             BotCommand::Fill{ near } => {
                 let n = *near;
@@ -184,7 +216,7 @@ impl State {
                     return Err(Error::MoveOutOfBounds{c: cf})
                 }
 
-                volatile.insert(cf);
+                Ok((Region::from_corners(&c, &cf), None))
             },
             BotCommand::Void{ near } => {
                 let n = *near;
@@ -193,7 +225,7 @@ impl State {
                     return Err(Error::MoveOutOfBounds{c: cf})
                 }
 
-                volatile.insert(cf);
+                Ok((Region::from_corners(&c, &cf), None))
             },
             BotCommand::Fission{ near, split_m } => {
                 let n = *near;
@@ -212,7 +244,7 @@ impl State {
                     return Err(Error::MoveRegionIsNotVoid{r: Region::from_corners(&cf, &cf)})
                 }
 
-                volatile.insert(cf);
+                Ok((Region::from_corners(&c, &cf), None))
             }
             BotCommand::FusionP{ near } => {
                 let n = *near;
@@ -220,6 +252,8 @@ impl State {
                 if !self.matrix.is_valid_coord(&cf) {
                     return Err(Error::MoveOutOfBounds{c: cf})
                 }
+
+                Ok((bot_reg, None))
             },
             BotCommand::FusionS{ near } => {
                 let n = *near;
@@ -227,11 +261,12 @@ impl State {
                 if !self.matrix.is_valid_coord(&cf) {
                     return Err(Error::MoveOutOfBounds{c: cf})
                 }
+
+                Ok((bot_reg, None))
             },
             BotCommand::GFill{ near: _, far: _ } => unimplemented!(),
             BotCommand::GVoid{ near: _, far: _ } => unimplemented!(),
         }
-        Ok(volatile)
     }
 
     pub fn perform_mut(&mut self, bid: &Bid, cmd: &BotCommand) {
@@ -355,10 +390,29 @@ impl State {
             self.perform_mut(bid, cmd)
         }
 
-        res
+        let mut ret = HashSet::new();
+
+        match res {
+            Ok((vol1, maybe_vol2)) => {
+                for c in vol1.coord_set() {
+                    ret.insert(c);
+                }
+
+                if let Some(vol2) = maybe_vol2 {
+                    for c in vol2.coord_set() {
+                        ret.insert(c);
+                    }
+                }
+
+                Ok(ret)
+            },
+            Err(e) => Err(e),
+        }
     }
 
-    pub fn step_mut(&mut self, commands: &mut Vec<BotCommand>) -> Result<(), Error> {
+    pub fn step_mut<T>(&mut self, cmd_iter: &mut T) -> Result<(), Error>
+        where T : Iterator<Item = BotCommand> {
+
         /* check the state is well-formed */
         let wf = self.wellformed();
         if WellformedStatus::Wellformed != wf {
@@ -367,26 +421,42 @@ impl State {
 
         /* check there are enough commands */
         let bids: Vec<Bid> = self.bots.keys().cloned().collect();
-        if commands.len() < bids.len() {
-            return Err(Error::NotEnoughCommands);
-        }
-
-        let commands_to_execute : Vec<BotCommand> = commands.drain(0..bids.len()).collect();
+        let cmds: Vec<BotCommand> = cmd_iter.take(bids.len()).collect();
 
         /* check command preconditions & end commands interference */
-        let mut volatile: HashSet<Coord> = HashSet::new();
-        for (bid, cmd) in bids.iter().zip(commands_to_execute.iter()) {
-            let res = self.check_precondition(bid, &cmd);
-            match res {
-                Ok(cmd_volatile) => {
-                    if volatile.intersection(&cmd_volatile).next() != None {
-                        return Err(Error::CommandsInterfere)
-                    }
-                    for c in cmd_volatile {
-                        volatile.insert(c);
+        let mut volatile: Vec<Region> = vec![];
+        let mut bid_iter = bids.iter();
+        let mut cmd_iter = cmds.iter();
+        loop {
+            match (bid_iter.next(), cmd_iter.next()) {
+                (Some(bid), Some(cmd)) => {
+                    let res = self.check_precondition(bid, &cmd);
+                    match res {
+                        Ok((vol1, maybe_vol2)) => {
+                            for vol_reg in &volatile {
+                                if vol_reg.intersects(&vol1) {
+                                    println!("cmd: {:?}", cmd);
+                                    return Err(Error::CommandsInterfere)
+                                }
+                            }
+                            volatile.push(vol1);
+
+                            if let Some(vol2) = maybe_vol2 {
+                                for vol_reg in &volatile {
+                                    if vol_reg.intersects(&vol2) {
+                                        println!("cmd: {:?}", cmd);
+                                        return Err(Error::CommandsInterfere)
+                                    }
+                                }
+
+                                volatile.push(vol2);
+                            }
+                        },
+                        Err(e) => return Err(e),
                     }
                 },
-                Err(e) => return Err(e),
+                (Some(_), None) => { return Err(Error::NotEnoughCommands); }
+                (None, _) => { break; }
             }
         }
 
@@ -401,28 +471,33 @@ impl State {
         // energy for each nanobot
         self.energy += 20 * self.bots.len();
 
-        for (bid, cmd) in bids.iter().zip(commands_to_execute.iter()) {
-            self.perform_mut(bid, &cmd);
+        let mut bid_iter = bids.iter();
+        let mut cmd_iter = cmds.iter();
+        loop {
+            match (bid_iter.next(), cmd_iter.next()) {
+                (Some(bid), Some(cmd)) => {
+                    self.perform_mut(bid, &cmd);
+                },
+                (Some(_), None) => { return Err(Error::NotEnoughCommands); }
+                (None, _) => { break; }
+            }
         }
         Ok(())
     }
 
-    pub fn run_mut(&mut self, mut commands: Vec<BotCommand>) -> Result<(), Error> {
-        // let mut step_counter = 0;
+    pub fn run_mut(&mut self, commands: Vec<BotCommand>) -> Result<(), Error> {
+        let mut cmd_iter = commands.into_iter();
         loop {
             self.steps += 1;
-            let res = self.step_mut(&mut commands);
+            let res = self.step_mut(&mut cmd_iter);
             match res {
                 Err(e) => {
-                    // println!("ERROR: {:?}", e);
-                    // assert!(false);
                     return Err(e);
                 },
                 Ok(_) => ()
             }
 
-            if commands.is_empty() {
-                // println!("ENERGY {} Steps {} ", state.energy, step_counter);
+            if self.is_halt() {
                 return Ok(())
             }
         }
@@ -727,13 +802,12 @@ mod test {
             BotCommand::flip().unwrap(),
             BotCommand::halt().unwrap(),
             ];
-        state.step_mut(&mut trace).unwrap();
-        state.step_mut(&mut trace).unwrap();
-        state.step_mut(&mut trace).unwrap();
-        state.step_mut(&mut trace).unwrap();
-        state.step_mut(&mut trace).unwrap();
-        // println!("Energy: {}", state.energy);
-        // assert!(false);
+        let mut trace_it = trace.into_iter();
+        state.step_mut(&mut trace_it).unwrap();
+        state.step_mut(&mut trace_it).unwrap();
+        state.step_mut(&mut trace_it).unwrap();
+        state.step_mut(&mut trace_it).unwrap();
+        state.step_mut(&mut trace_it).unwrap();
     }
 
     use super::super::junk::FA001_TGT_MDL;

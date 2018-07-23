@@ -41,7 +41,7 @@ impl LinearCoordDiff {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Region {
     pub min: Coord,
     pub max: Coord,
@@ -108,6 +108,11 @@ impl Coord {
             .filter(|c| c.x >= LOWER_LIMIT && c.x <= UPPER_LIMIT)
             .filter(|c| c.y >= LOWER_LIMIT && c.y <= UPPER_LIMIT)
             .filter(|c| c.z >= LOWER_LIMIT && c.z <= UPPER_LIMIT)
+    }
+
+    pub fn get_neighbours_limit(&self, limit: isize) -> impl Iterator<Item = Coord> {
+        self.get_neighbours()
+            .filter(move |c| c.x < limit && c.y < limit && c.z < limit)
     }
 }
 
@@ -284,11 +289,7 @@ impl Matrix {
             .filter(move |c| self.is_filled(c))
     }
 
-    pub fn is_grounded(&self, coord: &Coord) -> bool {
-        if !self.is_filled(coord) {
-            return false;
-        }
-
+    pub fn will_be_grounded(&self, coord: &Coord) -> bool {
         use pathfinding::directed::astar;
 
         astar::astar(
@@ -300,29 +301,19 @@ impl Matrix {
         ).is_some()
     }
 
+    pub fn is_grounded(&self, coord: &Coord) -> bool {
+        if !self.is_filled(coord) {
+            return false;
+        }
+        self.will_be_grounded(coord)
+    }
+
     pub fn filled_voxels(&self) -> impl Iterator<Item = &Coord> {
         self.filled.iter()
     }
 
     pub fn all_voxels_are_grounded(&self) -> bool {
-        let mut voxels_pending = self.filled.clone();
-        while let Some(&voxel) = voxels_pending.iter().next() {
-            let mut queue = vec![voxel];
-            let mut grounded = false;
-            while let Some(voxel) = queue.pop() {
-                if !voxels_pending.remove(&voxel) {
-                    continue;
-                }
-                if voxel.y == 0 {
-                    grounded = true;
-                }
-                queue.extend(self.filled_near_neighbours(&voxel));
-            }
-            if !grounded {
-                return false;
-            }
-        }
-        true
+        all_voxels_are_grounded(self.filled.clone())
     }
 
     pub fn is_valid_coord(&self, c: &Coord) -> bool {
@@ -335,6 +326,26 @@ impl Matrix {
     pub fn equals(&self, other: &Matrix) -> bool {
         &self.field == &other.field
     }
+}
+
+pub fn all_voxels_are_grounded(mut voxels_pending: HashSet<Coord>) -> bool {
+    while let Some(&voxel) = voxels_pending.iter().next() {
+        let mut queue = vec![voxel];
+        let mut grounded = false;
+        while let Some(voxel) = queue.pop() {
+            if !voxels_pending.remove(&voxel) {
+                continue;
+            }
+            if voxel.y == 0 {
+                grounded = true;
+            }
+            queue.extend(voxel.near_neighbours().filter(|c| voxels_pending.contains(c)))
+        }
+        if !grounded {
+            return false;
+        }
+    }
+    true
 }
 
 use std::fmt;
@@ -532,5 +543,34 @@ mod tests {
             min: Coord { x: 0, y: 2, z: 0, },
             max: Coord { x: 2, y: 2, z: 2, },
         }));
+    }
+
+    #[test]
+    fn will_be_grounded() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![Coord { x: 1, y: 0, z: 1, },]);
+        assert!(matrix.will_be_grounded(&Coord { x: 1, y: 1, z: 1, }));
+        assert!(matrix.will_be_grounded(&Coord { x: 0, y: 0, z: 0, }));
+        assert!(!matrix.will_be_grounded(&Coord { x: 1, y: 2, z: 1, }));
+        assert!(!matrix.will_be_grounded(&Coord { x: 0, y: 1, z: 1, }));
+
+        let matrix = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 1, },
+            Coord { x: 1, y: 1, z: 1, },
+            Coord { x: 1, y: 2, z: 1, },
+        ]);
+        assert!(!matrix.will_be_grounded(&Coord { x: 2, y: 1, z: 0, }));
+    }
+
+    #[test]
+    fn tower_all_voxels_are_grounded() {
+        let matrix = Matrix::from_iter(Resolution(3), vec![
+            Coord { x: 1, y: 0, z: 1, },
+            Coord { x: 1, y: 1, z: 1, },
+            Coord { x: 1, y: 2, z: 1, },
+        ]);
+        assert!(super::all_voxels_are_grounded(matrix.filled_voxels().cloned().collect()));
+        assert!(super::all_voxels_are_grounded(matrix.filled_voxels().cloned().filter(|v| v.y != 2).collect()));
+        assert!(!super::all_voxels_are_grounded(matrix.filled_voxels().cloned().filter(|v| v.y != 1).collect()));
+        assert!(!super::all_voxels_are_grounded(matrix.filled_voxels().cloned().filter(|v| v.y != 0).collect()));
     }
 }
