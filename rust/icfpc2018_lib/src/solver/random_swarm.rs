@@ -83,6 +83,11 @@ pub fn solve_rng<R>(
     let mut harmonics = Harmonics::Low;
     loop {
         ticks_count += 1;
+
+        if ticks_count % 100 == 0 {
+            debug!("ticks_count = {}", ticks_count);
+        }
+
         if ticks_count >= env.config.global_ticks_limit {
             let mut voxels_to_do = 0;
             for voxel in env.source_model.filled_voxels() {
@@ -407,6 +412,7 @@ impl Nanobot {
                     let source_filled = env.source_model.is_filled(&job_coord);
                     if current_filled && source_filled {
                         let safe_to_remove =
+                            // current_model.filled_near_neighbours(&job_coord).all(|coord| current_model.is_grounded(&coord));
                             coord::all_voxels_are_grounded(current_model.filled_voxels().cloned().filter(|voxel| voxel != &job_coord).collect());
                         match harmonics {
                             Harmonics::Low if safe_to_remove =>

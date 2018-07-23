@@ -329,8 +329,9 @@ impl Matrix {
 }
 
 pub fn all_voxels_are_grounded(mut voxels_pending: HashSet<Coord>) -> bool {
+    let mut queue = Vec::with_capacity(voxels_pending.len());
     while let Some(&voxel) = voxels_pending.iter().next() {
-        let mut queue = vec![voxel];
+        queue.push(voxel);
         let mut grounded = false;
         while let Some(voxel) = queue.pop() {
             if !voxels_pending.remove(&voxel) {
