@@ -316,6 +316,10 @@ impl Matrix {
         all_voxels_are_grounded(self.filled.clone())
     }
 
+    pub fn first_ungrounded_voxel(&self) -> Option<Coord> {
+        first_ungrounded_voxel(self.filled.clone())
+    }
+
     pub fn is_valid_coord(&self, c: &Coord) -> bool {
         c.x >= 0 && c.y >= 0 && c.z >= 0
             && (c.x as usize) < self.dim()
@@ -328,7 +332,11 @@ impl Matrix {
     }
 }
 
-pub fn all_voxels_are_grounded(mut voxels_pending: HashSet<Coord>) -> bool {
+pub fn all_voxels_are_grounded(voxels_pending: HashSet<Coord>) -> bool {
+    first_ungrounded_voxel(voxels_pending).is_none()
+}
+
+pub fn first_ungrounded_voxel(mut voxels_pending: HashSet<Coord>) -> Option<Coord> {
     let mut queue = Vec::with_capacity(voxels_pending.len());
     while let Some(&voxel) = voxels_pending.iter().next() {
         queue.push(voxel);
@@ -343,10 +351,10 @@ pub fn all_voxels_are_grounded(mut voxels_pending: HashSet<Coord>) -> bool {
             queue.extend(voxel.near_neighbours().filter(|c| voxels_pending.contains(c)))
         }
         if !grounded {
-            return false;
+            return Some(voxel);
         }
     }
-    true
+    None
 }
 
 use std::fmt;
