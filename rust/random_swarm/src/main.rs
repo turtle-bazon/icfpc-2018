@@ -69,6 +69,8 @@ fn run() -> Result<(), Error> {
         Matrix::new(Resolution(target_model.dim() as M))
     };
 
+    info!("Everything is ready, start solving");
+
     let mut rng: XorShiftRng =
         SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
@@ -103,5 +105,6 @@ fn run() -> Result<(), Error> {
     writer.write_all(&trace)
         .map_err(Error::OutScriptFileWrite)?;
 
+    info!("All done!");
     Ok(())
 }
