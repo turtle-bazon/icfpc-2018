@@ -109,6 +109,11 @@ impl Coord {
             .filter(|c| c.y >= LOWER_LIMIT && c.y <= UPPER_LIMIT)
             .filter(|c| c.z >= LOWER_LIMIT && c.z <= UPPER_LIMIT)
     }
+
+    pub fn get_neighbours_limit(&self, limit: isize) -> impl Iterator<Item = Coord> {
+        self.get_neighbours()
+            .filter(move |c| c.x < limit && c.y < limit && c.z < limit)
+    }
 }
 
 impl CoordDiff {
