@@ -34,6 +34,7 @@ fn main() {
 #[derive(Debug)]
 enum Error {
     MissingParameter(&'static str),
+    InvalidGlobalTicksLimit(clap::Error),
     Model(model::Error),
     Solver(random_swarm::Error),
     OutScriptFileCompile(cmd::Error),
@@ -56,6 +57,13 @@ fn run() -> Result<(), Error> {
              .help("Target model")
              .default_value("../../problems/FA004_tgt.mdl")
              .takes_value(true))
+        .arg(Arg::with_name("global-ticks-limit")
+             .short("l")
+             .long("global-ticks-limit")
+             .value_name("LIMIT")
+             .help("Solver global ticks limit parameter")
+             .default_value("1024")
+             .takes_value(true))
         .get_matches();
 
     let target_model_file = matches.value_of("target-model")
@@ -68,6 +76,13 @@ fn run() -> Result<(), Error> {
     } else {
         Matrix::new(Resolution(target_model.dim() as M))
     };
+    let config = random_swarm::Config {
+        init_bots: vec![],
+        rtt_limit: 64,
+        route_attempts_limit: 16,
+        global_ticks_limit: value_t!(matches, "global-ticks-limit", usize)
+            .map_err(Error::InvalidGlobalTicksLimit)?,
+    };
 
     info!("Everything is ready, start solving");
 
@@ -77,12 +92,7 @@ fn run() -> Result<(), Error> {
     let solve_result = random_swarm::solve_rng(
         source_model,
         target_model,
-        random_swarm::Config {
-            init_bots: vec![],
-            rtt_limit: 64,
-            route_attempts_limit: 16,
-            global_ticks_limit: 100,
-        },
+        config,
         &mut rng,
     );
 
