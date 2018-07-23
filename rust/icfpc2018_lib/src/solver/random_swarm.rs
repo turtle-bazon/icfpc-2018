@@ -60,6 +60,8 @@ pub fn solve_rng<R>(
     let mut script: Vec<BotCommand> = Vec::new();
     let mut volatiles: Vec<Region> = Vec::new();
     let mut positions: Vec<Coord> = Vec::new();
+    let mut pending_voids: Vec<Coord> = Vec::new();
+    let mut pending_fills: Vec<Coord> = Vec::new();
 
     let mut void_towers = make_towers(&env.source_model);
     let mut fill_towers = make_towers(&env.target_model);
@@ -209,11 +211,11 @@ pub fn solve_rng<R>(
                 },
                 &BotCommand::Fill { near, } => {
                     let fill_coord = nanobot.bot.pos.add(near);
-                    current_model.set_filled(&fill_coord);
+                    pending_fills.push(fill_coord);
                 },
                 &BotCommand::Void{ near, } => {
                     let void_coord = nanobot.bot.pos.add(near);
-                    current_model.set_void(&void_coord);
+                    pending_voids.push(void_coord);
                 },
             });
 
@@ -237,6 +239,13 @@ pub fn solve_rng<R>(
         }
         nanobots = next_nanobots;
         nanobots.sort_by_key(|nanobot| nanobot.bid);
+
+        for void_coord in pending_voids.drain(..) {
+            current_model.set_void(&void_coord);
+        }
+        for fill_coord in pending_fills.drain(..) {
+            current_model.set_filled(&fill_coord);
+        }
     }
 }
 
@@ -269,7 +278,7 @@ enum Plan {
     HeadingFor { target: Coord, attempts: usize, goal: Goal, },
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Goal {
     Park,
     Wander,
@@ -369,12 +378,18 @@ impl Nanobot {
                     let target = pick_random_coord(current_model.dim() as isize, rng);
                     self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
                 },
-                Plan::HeadingFor { target, attempts, .. } if attempts > env.config.route_attempts_limit =>
+                Plan::HeadingFor { target, attempts, goal, } if attempts > env.config.route_attempts_limit => {
+                    debug!("HeadingFor attempts limit exceeded for bid = {} and  goal = {:?}", self.bid, goal);
+                    debug!("current source pos is {}",
+                           if is_passable(&Region { min: self.bot.pos, max: self.bot.pos, }) { "passable" } else { "blocked" });
+                    debug!("current target pos is {}",
+                           if is_passable(&Region { min: target, max: target, }) { "passable" } else { "blocked" });
                     return PlanResult::Error(Error::RouteAttempsLimitExceeded {
                         source: self.bot.pos,
                         target,
                         attempts,
-                    }),
+                    });
+                },
                 Plan::HeadingFor { goal: Goal::Park, target, .. } if target == self.bot.pos =>
                     unreachable!(),
                 Plan::HeadingFor { goal: Goal::Wander, target, .. } if target == self.bot.pos => {
@@ -396,9 +411,11 @@ impl Nanobot {
 
                     // take a job if any
                     let maybe_void_index = match harmonics_lock {
-                        HighHarmonicsLock::Free =>
+                        HighHarmonicsLock::Free => {
+                            void_towers.sort_by_key(|region| -region.max.y);
                             void_towers.iter().position(|region| coord::all_voxels_are_grounded(
-                                current_model.filled_voxels().cloned().filter(|voxel| !region.contains(voxel)).collect())),
+                                current_model.filled_voxels().cloned().filter(|voxel| !region.contains(voxel)).collect()))
+                        },
                         HighHarmonicsLock::Locked { .. } =>
                             if void_towers.is_empty() {
                                 None
@@ -407,8 +424,10 @@ impl Nanobot {
                             },
                     };
                     let maybe_fill_index = match harmonics_lock {
-                        HighHarmonicsLock::Free =>
-                            fill_towers.iter().position(|region| current_model.will_be_grounded(&region.min)),
+                        HighHarmonicsLock::Free => {
+                            fill_towers.sort_by_key(|region| region.min.y);
+                            fill_towers.iter().position(|region| current_model.will_be_grounded(&region.min))
+                        },
                         HighHarmonicsLock::Locked { .. } =>
                             if fill_towers.is_empty() {
                                 None
@@ -454,7 +473,6 @@ impl Nanobot {
                     let source_filled = env.source_model.is_filled(&job_coord);
                     if current_filled && source_filled {
                         let safe_to_remove =
-                            // current_model.filled_near_neighbours(&job_coord).all(|coord| current_model.is_grounded(&coord));
                             coord::all_voxels_are_grounded(current_model.filled_voxels().cloned().filter(|voxel| voxel != &job_coord).collect());
                         match harmonics_lock {
                             HighHarmonicsLock::Free if safe_to_remove =>
@@ -469,7 +487,7 @@ impl Nanobot {
                             // get next tower
                             HighHarmonicsLock::Free =>
                                 self.plan = Plan::HeadingFor { goal: Goal::Wander, target, attempts: 0, },
-                            // turn on gravity
+                            // maybe turn on gravity
                             HighHarmonicsLock::Locked { .. } =>
                                 return PlanResult::Regular { nanobot: self, cmd: BotCommand::Flip, },
                         }
@@ -535,10 +553,14 @@ impl Nanobot {
                                         attempts: next_attempts,
                                     };
                                 },
-                                Goal::Void { tower, } =>
-                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Void { tower, } },
-                                Goal::Fill { tower, } =>
-                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Fill { tower, } },
+                                Goal::Void { tower, } => {
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Void { tower, } };
+                                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
+                                },
+                                Goal::Fill { tower, } => {
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Fill { tower, } };
+                                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
+                                },
                             }
                         Err(error) =>
                             return PlanResult::Error(error),
