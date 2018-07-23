@@ -173,36 +173,7 @@ impl State {
                     return Err(Error::MoveOutOfBounds{c: cff})
                 }
 
-                let volatile_reg2 = match short2 {
-                    LinearCoordDiff::Short{axis,value} =>
-                        match axis {
-                            Axis::X => {
-                                if *value > 0 {
-                                    Region::from_corners(&Coord { x: cf.x + 1, y: cf.y, z: cf.z, }, &cff)
-                                }
-                                else {
-                                    Region::from_corners(&Coord { x: cf.x - 1, y: cf.y, z: cf.z, }, &cff)
-                                }
-                            },
-                            Axis::Y => {
-                                if *value > 0 {
-                                    Region::from_corners(&Coord { x: cf.x, y: cf.y + 1, z: cf.z, }, &cff)
-                                }
-                                else {
-                                    Region::from_corners(&Coord { x: cf.x, y: cf.y - 1, z: cf.z, }, &cff)
-                                }
-                            }
-                            Axis::Z => {
-                                if *value > 0 {
-                                    Region::from_corners(&Coord { x: cf.x, y: cf.y, z: cf.z + 1, }, &cff)
-                                }
-                                else {
-                                    Region::from_corners(&Coord { x: cf.x, y: cf.y, z: cf.z - 1, }, &cff)
-                                }
-                            }
-                        },
-                    _ => panic!("Unexpected diff!"),
-                };
+                let volatile_reg2 = Region::from_corners(&c, &cf);
                 if self.matrix.contains_filled(&volatile_reg2) {
                     return Err(Error::MoveRegionIsNotVoid{r: volatile_reg2})
                 }
@@ -451,7 +422,6 @@ impl State {
                                     return Err(Error::CommandsInterfere)
                                 }
                             }
-                            volatile.push(vol1);
 
                             if let Some(vol2) = maybe_vol2 {
                                 for vol_reg in &volatile {
@@ -463,6 +433,7 @@ impl State {
 
                                 volatile.push(vol2);
                             }
+                            volatile.push(vol1);
                         },
                         Err(e) => return Err(e),
                     }
