@@ -7,3 +7,5 @@ Team private ID: 83a5a58b38d74178b43b65caeef23500
 * Gleb Golubitsky (sectoid) - sectoid@gnolltech.org
 * Alexey Voznyuk (swizard) - me@swizard.info
 * Igor Morgunov (merl) - merl.001.mia@gmail.com
+* Pavlo Suikov (jtootf) - pavlo.suikov@gnolltech.org
+* Azamat S. Kalimoulline (turtle) - turtle@bazon.ru
