@@ -795,7 +795,7 @@ mod test {
         let mut state = State::new(matrix, vec![]);
 
         // println!("Energy: {}", state.energy);
-        let mut trace = vec![
+        let trace = vec![
             BotCommand::flip().unwrap(),
             BotCommand::smove(LinearCoordDiff::Long { axis: Axis::X, value: 2, }).unwrap(),
             BotCommand::smove(LinearCoordDiff::Long { axis: Axis::X, value: -2, }).unwrap(),
