@@ -1,3 +1,5 @@
+use std::mem;
+
 use super::coord::{
     Region,
     Coord,
@@ -14,26 +16,26 @@ pub enum InsertStatus {
     Kept,
 }
 
-pub struct Octree {
-    nodes: Vec<Node>,
+pub struct Octree<T> {
+    nodes: Vec<Node<T>>,
 }
 
 
 #[derive(Debug)]
-struct Node {
+struct Node<T> {
     bounds: Region,
-    content: Content,
+    content: Content<T>,
 }
 
 #[derive(Debug)]
-enum Content {
+enum Content<T> {
     Empty,
-    Leaf(Coord),
+    Leaf { point: Coord, value: T, },
     Tree([usize; 8]),
 }
 
-impl Octree {
-    pub fn new(dimension: Region) -> Octree {
+impl<T> Octree<T> {
+    pub fn new(dimension: Region) -> Octree<T> {
         Octree {
             nodes: vec![Node {
                 bounds: dimension,
@@ -42,10 +44,10 @@ impl Octree {
         }
     }
 
-    pub fn insert(&mut self, point: Coord) -> Result<InsertStatus, Error> {
+    pub fn insert(&mut self, mut point: Coord, mut value: T) -> Result<InsertStatus, Error> {
+        let mut node_ref = 0;
         loop {
-            let mut node_ref = 0;
-            let (mid, leaf) = loop {
+            let mid = loop {
                 let node = &mut self.nodes[node_ref];
                 if !node.bounds.contains(&point) {
                     return Err(Error::OutsideOfBoundingBox {
@@ -57,13 +59,13 @@ impl Octree {
 
                 match node.content {
                     Content::Empty => {
-                        node.content = Content::Leaf(point);
+                        node.content = Content::Leaf { point, value, };
                         return Ok(InsertStatus::Inserted);
                     },
-                    Content::Leaf(leaf) if leaf == point =>
+                    Content::Leaf { point: leaf_point, .. } if leaf_point == point =>
                         return Ok(InsertStatus::Kept),
-                    Content::Leaf(leaf) =>
-                        break (mid, leaf),
+                    Content::Leaf { .. } =>
+                        break mid,
                     Content::Tree(ref nodes) =>
                         node_ref = nodes[leaf_index(&mid, &point)],
                 }
@@ -190,7 +192,9 @@ impl Octree {
                 },
                 content: Content::Empty,
             });
-            self.nodes[node_ref].content = Content::Tree([
+            let point_ref = node_root + leaf_index(&mid, &point);
+            self.nodes[point_ref].content = Content::Leaf { point, value, };
+            let content_tree = Content::Tree([
                 node_root + 0,
                 node_root + 1,
                 node_root + 2,
@@ -200,32 +204,31 @@ impl Octree {
                 node_root + 6,
                 node_root + 7,
                 ]);
-            let leaf_ref = node_root + leaf_index(&mid, &leaf);
-            let point_ref = node_root + leaf_index(&mid, &point);
-            self.nodes[leaf_ref].content = Content::Leaf(leaf);
-            if leaf_ref != point_ref {
-                self.nodes[point_ref].content = Content::Leaf(point);
-                return Ok(InsertStatus::Inserted);
+            if let Content::Leaf { point: leaf_point, value: leaf_value, } = mem::replace(&mut self.nodes[node_ref].content, content_tree) {
+                point = leaf_point;
+                value = leaf_value;
+            } else {
+                unreachable!()
             }
         }
     }
 
-    pub fn contains(&self, point: &Coord) -> bool {
+    pub fn get(&self, point: &Coord) -> Option<&T> {
         let mut node_ref = 0;
         loop {
             let node = &self.nodes[node_ref];
             if !node.bounds.contains(&point) {
-                return false;
+                return None;
             }
             let mid = bounds_mid(&node.bounds);
 
             match node.content {
                 Content::Empty =>
-                    return false,
-                Content::Leaf(ref leaf) if leaf == point =>
-                    return true,
-                Content::Leaf(..) =>
-                    return false,
+                    return None,
+                Content::Leaf { point: ref leaf_point, ref value, } if leaf_point == point =>
+                    return Some(value),
+                Content::Leaf { .. } =>
+                    return None,
                 Content::Tree(ref nodes) =>
                     node_ref = nodes[leaf_index(&mid, &point)],
             }
@@ -267,19 +270,18 @@ mod test {
 
         let mut rng = rand::thread_rng();
         let samples: Vec<_> = (0 .. 1000)
-            .map(|_| Coord {
-                x: rng.gen_range(0, 251),
-                y: rng.gen_range(0, 251),
-                z: rng.gen_range(0, 251),
-            })
+            .map(|_| (Coord {
+                x: rng.gen_range(1, 251),
+                y: rng.gen_range(1, 251),
+                z: rng.gen_range(1, 251),
+            }, rng.gen_range(-1000, 1000)))
             .collect();
-        for point in samples.iter().cloned() {
-            tree.insert(point).unwrap();
+        for &(point, value) in samples.iter() {
+            tree.insert(point, value).unwrap();
         }
-        for point in samples.iter() {
-            if !tree.contains(point) {
-                panic!("could not find sample point {:?} in octree", point);
-            }
+        for &(ref point, ref value) in samples.iter() {
+            assert_eq!(tree.get(point), Some(value));
         }
+        assert_eq!(tree.get(&Coord { x: 0, y: 0, z: 0, }), None);
     }
 }
