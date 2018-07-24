@@ -19,11 +19,13 @@ pub struct Octree {
 }
 
 
+#[derive(Debug)]
 struct Node {
     bounds: Region,
     content: Content,
 }
 
+#[derive(Debug)]
 enum Content {
     Empty,
     Leaf(Coord),
@@ -41,165 +43,171 @@ impl Octree {
     }
 
     pub fn insert(&mut self, point: Coord) -> Result<InsertStatus, Error> {
-        let mut node_ref = 0;
-        let (mid, leaf) = loop {
-            let node = &mut self.nodes[node_ref];
-            if !node.bounds.contains(&point) {
-                return Err(Error::OutsideOfBoundingBox {
-                    bounding_box: node.bounds,
-                    point,
-                });
-            }
-            let mid = bounds_mid(&node.bounds);
+        loop {
+            let mut node_ref = 0;
+            let (mid, leaf) = loop {
+                let node = &mut self.nodes[node_ref];
+                if !node.bounds.contains(&point) {
+                    return Err(Error::OutsideOfBoundingBox {
+                        bounding_box: node.bounds,
+                        point,
+                    });
+                }
+                let mid = bounds_mid(&node.bounds);
 
-            match node.content {
-                Content::Empty => {
-                    node.content = Content::Leaf(point);
-                    return Ok(InsertStatus::Inserted);
+                match node.content {
+                    Content::Empty => {
+                        node.content = Content::Leaf(point);
+                        return Ok(InsertStatus::Inserted);
+                    },
+                    Content::Leaf(leaf) if leaf == point =>
+                        return Ok(InsertStatus::Kept),
+                    Content::Leaf(leaf) =>
+                        break (mid, leaf),
+                    Content::Tree(ref nodes) =>
+                        node_ref = nodes[leaf_index(&mid, &point)],
+                }
+            };
+            let bounds = self.nodes[node_ref].bounds;
+            let node_root = self.nodes.len();
+            self.nodes.push(Node { // 0
+                bounds: Region {
+                    min: Coord {
+                        x: bounds.min.x,
+                        y: bounds.min.y,
+                        z: bounds.min.z,
+                    },
+                    max: Coord {
+                        x: mid.x,
+                        y: mid.y,
+                        z: mid.z,
+                    },
                 },
-                Content::Leaf(leaf) if leaf == point =>
-                    return Ok(InsertStatus::Kept),
-                Content::Leaf(leaf) =>
-                    break (mid, leaf),
-                Content::Tree(ref nodes) =>
-                    node_ref = nodes[leaf_index(&mid, &point)],
+                content: Content::Empty,
+            });
+            self.nodes.push(Node { // 1
+                bounds: Region {
+                    min: Coord {
+                        x: bounds.min.x,
+                        y: bounds.min.y,
+                        z: mid.z + 1,
+                    },
+                    max: Coord {
+                        x: mid.x,
+                        y: mid.y,
+                        z: bounds.max.z,
+                    },
+                },
+                content: Content::Empty,
+            });
+            self.nodes.push(Node { // 2
+                bounds: Region {
+                    min: Coord {
+                        x: bounds.min.x,
+                        y: mid.y + 1,
+                        z: bounds.min.z,
+                    },
+                    max: Coord {
+                        x: mid.x,
+                        y: bounds.max.y,
+                        z: mid.z,
+                    },
+                },
+                content: Content::Empty,
+            });
+            self.nodes.push(Node { // 3
+                bounds: Region {
+                    min: Coord {
+                        x: bounds.min.x,
+                        y: mid.y + 1,
+                        z: mid.z + 1,
+                    },
+                    max: Coord {
+                        x: mid.x,
+                        y: bounds.max.y,
+                        z: bounds.max.z,
+                    },
+                },
+                content: Content::Empty,
+            });
+            self.nodes.push(Node { // 4
+                bounds: Region {
+                    min: Coord {
+                        x: mid.x + 1,
+                        y: bounds.min.y,
+                        z: bounds.min.z,
+                    },
+                    max: Coord {
+                        x: bounds.max.x,
+                        y: mid.y,
+                        z: mid.z,
+                    },
+                },
+                content: Content::Empty,
+            });
+            self.nodes.push(Node { // 5
+                bounds: Region {
+                    min: Coord {
+                        x: mid.x + 1,
+                        y: bounds.min.y,
+                        z: mid.z + 1,
+                    },
+                    max: Coord {
+                        x: bounds.max.x,
+                        y: mid.y,
+                        z: bounds.max.z,
+                    },
+                },
+                content: Content::Empty,
+            });
+            self.nodes.push(Node { // 6
+                bounds: Region {
+                    min: Coord {
+                        x: mid.x + 1,
+                        y: mid.y + 1,
+                        z: bounds.min.z,
+                    },
+                    max: Coord {
+                        x: bounds.max.x,
+                        y: bounds.max.y,
+                        z: mid.z,
+                    },
+                },
+                content: Content::Empty,
+            });
+            self.nodes.push(Node { // 7
+                bounds: Region {
+                    min: Coord {
+                        x: mid.x + 1,
+                        y: mid.y + 1,
+                        z: mid.z + 1,
+                    },
+                    max: Coord {
+                        x: bounds.max.x,
+                        y: bounds.max.y,
+                        z: bounds.max.z,
+                    },
+                },
+                content: Content::Empty,
+            });
+            self.nodes[node_ref].content = Content::Tree([
+                node_root + 0,
+                node_root + 1,
+                node_root + 2,
+                node_root + 3,
+                node_root + 4,
+                node_root + 5,
+                node_root + 6,
+                node_root + 7,
+                ]);
+            let leaf_ref = node_root + leaf_index(&mid, &leaf);
+            let point_ref = node_root + leaf_index(&mid, &point);
+            self.nodes[leaf_ref].content = Content::Leaf(leaf);
+            if leaf_ref != point_ref {
+                self.nodes[point_ref].content = Content::Leaf(point);
+                return Ok(InsertStatus::Inserted);
             }
-        };
-        let bounds = self.nodes[node_ref].bounds;
-        let node_root = self.nodes.len();
-        self.nodes.push(Node { // 0
-            bounds: Region {
-                min: Coord {
-                    x: bounds.min.x,
-                    y: bounds.min.y,
-                    z: bounds.min.z,
-                },
-                max: Coord {
-                    x: mid.x,
-                    y: mid.y,
-                    z: mid.z,
-                },
-            },
-            content: Content::Empty,
-        });
-        self.nodes.push(Node { // 1
-            bounds: Region {
-                min: Coord {
-                    x: bounds.min.x,
-                    y: bounds.min.y,
-                    z: mid.z + 1,
-                },
-                max: Coord {
-                    x: mid.x,
-                    y: mid.y,
-                    z: bounds.max.z,
-                },
-            },
-            content: Content::Empty,
-        });
-        self.nodes.push(Node { // 2
-            bounds: Region {
-                min: Coord {
-                    x: bounds.min.x,
-                    y: mid.y + 1,
-                    z: bounds.min.z,
-                },
-                max: Coord {
-                    x: mid.x,
-                    y: bounds.max.y,
-                    z: mid.z,
-                },
-            },
-            content: Content::Empty,
-        });
-        self.nodes.push(Node { // 3
-            bounds: Region {
-                min: Coord {
-                    x: bounds.min.x,
-                    y: mid.y + 1,
-                    z: mid.z + 1,
-                },
-                max: Coord {
-                    x: mid.x,
-                    y: bounds.max.y,
-                    z: bounds.max.z,
-                },
-            },
-            content: Content::Empty,
-        });
-        self.nodes.push(Node { // 4
-            bounds: Region {
-                min: Coord {
-                    x: mid.x + 1,
-                    y: bounds.min.y,
-                    z: bounds.min.z,
-                },
-                max: Coord {
-                    x: bounds.max.x,
-                    y: mid.y,
-                    z: mid.z,
-                },
-            },
-            content: Content::Empty,
-        });
-        self.nodes.push(Node { // 5
-            bounds: Region {
-                min: Coord {
-                    x: mid.x + 1,
-                    y: bounds.min.y,
-                    z: mid.z + 1,
-                },
-                max: Coord {
-                    x: bounds.max.x,
-                    y: mid.y,
-                    z: bounds.max.z,
-                },
-            },
-            content: Content::Empty,
-        });
-        self.nodes.push(Node { // 6
-            bounds: Region {
-                min: Coord {
-                    x: mid.x + 1,
-                    y: mid.y + 1,
-                    z: bounds.min.z,
-                },
-                max: Coord {
-                    x: bounds.max.x,
-                    y: bounds.max.y,
-                    z: mid.z,
-                },
-            },
-            content: Content::Empty,
-        });
-        self.nodes.push(Node { // 7
-            bounds: Region {
-                min: Coord {
-                    x: mid.x + 1,
-                    y: mid.y + 1,
-                    z: mid.z + 1,
-                },
-                max: Coord {
-                    x: bounds.max.x,
-                    y: bounds.max.y,
-                    z: bounds.max.z,
-                },
-            },
-            content: Content::Empty,
-        });
-        self.nodes[node_root + leaf_index(&mid, &leaf)].content = Content::Leaf(leaf);
-        self.nodes[node_root + leaf_index(&mid, &point)].content = Content::Leaf(point);
-        self.nodes[node_ref].content = Content::Tree([
-            node_root + 0,
-            node_root + 1,
-            node_root + 2,
-            node_root + 3,
-            node_root + 4,
-            node_root + 5,
-            node_root + 6,
-            node_root + 7,
-        ]);
-        Ok(InsertStatus::Inserted)
+        }
     }
 
     pub fn contains(&self, point: &Coord) -> bool {
@@ -234,7 +242,7 @@ fn bounds_mid(bounds: &Region) -> Coord {
 }
 
 fn leaf_index(mid: &Coord, point: &Coord) -> usize {
-    match (point.x <= mid.x, point.y <= mid.y, point.z <= mid.z) {
+    match (point.x > mid.x, point.y > mid.y, point.z > mid.z) {
         (false, false, false) => 0,
         (false, false, true) => 1,
         (false, true, false) => 2,
@@ -253,7 +261,7 @@ mod test {
     use super::super::coord::{Coord, Region};
 
     #[test]
-    fn contans1000() {
+    fn contains_1000() {
         let mut tree =
             Octree::new(Region { min: Coord { x: 0, y: 0, z: 0, }, max: Coord { x: 250, y: 250, z: 250, }, });
 
