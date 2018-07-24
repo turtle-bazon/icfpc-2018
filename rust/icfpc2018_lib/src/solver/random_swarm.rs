@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use rand::{self, Rng};
 
 use super::super::{
@@ -30,9 +31,11 @@ pub enum Error {
 pub struct Config {
     pub init_bots: Vec<(Bid, Bot)>,
     pub rtt_limit: usize,
+    pub rtt_wander_limit: usize,
     pub route_attempts_limit: usize,
     pub global_ticks_limit: usize,
     pub max_spawns: usize,
+    pub max_seeds: usize,
 }
 
 pub fn solve(source_model: Matrix, target_model: Matrix, config: Config) -> Result<Vec<BotCommand>, (Error, Vec<BotCommand>)> {
@@ -58,8 +61,7 @@ pub fn solve_rng<R>(
     let mut commands_buf: Vec<(Coord, BotCommand)> = Vec::new();
     let mut script: Vec<BotCommand> = Vec::new();
     let mut script_tick: Vec<BotCommand> = Vec::new();
-    let mut volatiles: Vec<Region> = Vec::new();
-    let mut positions: Vec<Coord> = Vec::new();
+    let mut volatiles: HashSet<Coord> = HashSet::new();
     let mut pending_voids: Vec<Coord> = Vec::new();
     let mut pending_fills: Vec<Coord> = Vec::new();
 
@@ -67,7 +69,7 @@ pub fn solve_rng<R>(
     let mut fill_towers = make_towers(&env.target_model);
 
     let mut nanobots = if env.config.init_bots.is_empty() {
-        let (init_bid, init_bot) = Nanobot::init_bot();
+        let (init_bid, init_bot) = Nanobot::init_bot(env.config.max_seeds);
         vec![
             Nanobot {
                 bid: init_bid,
@@ -81,6 +83,9 @@ pub fn solve_rng<R>(
             .collect()
     };
 
+    use std::time::Instant;
+    let mut now = Instant::now();
+
     let mut ticks_count = 0;
     let mut work_complete = false;
     let mut harmonics = Harmonics::Low;
@@ -88,8 +93,10 @@ pub fn solve_rng<R>(
     loop {
         ticks_count += 1;
 
-        if ticks_count % 100 == 0 {
+        let elapsed = now.elapsed();
+        if elapsed.as_secs() >= 5 {
             debug!("ticks_count = {}", ticks_count);
+            now = Instant::now();
         }
 
         if ticks_count >= env.config.global_ticks_limit {
@@ -111,7 +118,10 @@ pub fn solve_rng<R>(
         }
         // check for stop condition
         let work_state = if work_complete || current_model.equals(&env.target_model) {
-            work_complete = true;
+            if !work_complete {
+                info!("target model is successfully printed");
+                work_complete = true;
+            }
             if nanobots.is_empty() {
                 return Ok(script);
             }
@@ -134,15 +144,15 @@ pub fn solve_rng<R>(
         };
 
         volatiles.clear();
-        positions.clear();
-        positions.extend(nanobots.iter().map(|nanobot| nanobot.bot.pos));
+        volatiles.extend(nanobots.iter().map(|nanobot| nanobot.bot.pos));
 
+        let prev_nanobots_count = nanobots.len();
         let mut nanobots_count = nanobots.len();
         let mut next_nanobots =
             Vec::with_capacity(nanobots_count);
         for nanobot in nanobots {
-            let nanobot_pos = nanobot.bot.pos;
             let dim = current_model.dim() as isize;
+            let nanobot_pos = nanobot.bot.pos;
             let implement_result =
                 nanobot.implement_plan(
                     &env,
@@ -156,9 +166,7 @@ pub fn solve_rng<R>(
                         false
                     } else if current_model.contains_filled(region) {
                         false
-                    } else if volatiles.iter().any(|reg| reg.intersects(region)) {
-                        false
-                    } else if positions.iter().filter(|&pos| pos != &nanobot_pos).any(|pos| region.contains(pos)) {
+                    } else if region.contents().any(|p| p != nanobot_pos && volatiles.contains(&p)) {
                         false
                     } else {
                         true
@@ -183,36 +191,36 @@ pub fn solve_rng<R>(
                 &BotCommand::SMove { ref long } => {
                     let move_diff = long.to_coord_diff();
                     let move_coord = nanobot.bot.pos.add(move_diff);
-                    volatiles.push(Region::from_corners(
+                    volatiles.extend(Region::from_corners(
                         &move_coord,
                         &nanobot.bot.pos,
-                    ));
+                    ).contents());
                     nanobot.bot.pos = move_coord;
                 },
                 &BotCommand::LMove { ref short1, ref short2, } => {
                     let move_diff_a = short1.to_coord_diff();
                     let move_coord_a = nanobot.bot.pos.add(move_diff_a);
-                    volatiles.push(Region::from_corners(
+                    volatiles.extend(Region::from_corners(
                         &move_coord_a,
                         &nanobot.bot.pos,
-                    ));
+                    ).contents());
                     let move_diff_b = short2.to_coord_diff();
                     let move_coord_b = move_coord_a.add(move_diff_b);
-                    volatiles.push(Region::from_corners(
+                    volatiles.extend(Region::from_corners(
                         &move_coord_b,
                         &move_coord_a,
-                    ));
+                    ).contents());
                     nanobot.bot.pos = move_coord_b;
                 },
                 &BotCommand::Fill { near, } => {
                     let fill_coord = nanobot.bot.pos.add(near);
                     pending_fills.push(fill_coord);
-                    volatiles.push(Region { min: fill_coord, max: fill_coord, });
+                    volatiles.insert(fill_coord);
                 },
                 &BotCommand::Void{ near, } => {
                     let void_coord = nanobot.bot.pos.add(near);
                     pending_voids.push(void_coord);
-                    volatiles.push(Region { min: void_coord, max: void_coord, });
+                    volatiles.insert(void_coord);
                 },
             });
 
@@ -234,6 +242,7 @@ pub fn solve_rng<R>(
                     return Err((error, script)),
             }
         }
+
         nanobots = next_nanobots;
         nanobots.sort_by_key(|nanobot| nanobot.bid);
 
@@ -248,7 +257,7 @@ pub fn solve_rng<R>(
         if ungrounded_voxel.is_some() {
             if let Harmonics::Low = harmonics {
                 script.push(BotCommand::Flip);
-                script.extend((1 .. nanobots.len()).map(|_| BotCommand::Wait));
+                script.extend((1 .. prev_nanobots_count).map(|_| BotCommand::Wait));
                 script.extend(script_tick.drain(..));
                 harmonics = Harmonics::High;
             } else {
@@ -258,7 +267,7 @@ pub fn solve_rng<R>(
             if let Harmonics::High = harmonics {
                 script.extend(script_tick.drain(..));
                 script.push(BotCommand::Flip);
-                script.extend((1 .. nanobots.len()).map(|_| BotCommand::Wait));
+                script.extend((1 .. nanobots_count).map(|_| BotCommand::Wait));
                 harmonics = Harmonics::Low;
             } else {
                 script.extend(script_tick.drain(..));
@@ -321,10 +330,10 @@ enum PlanResult {
 }
 
 impl Nanobot {
-    fn init_bot() -> (Bid, Bot) {
+    fn init_bot(max_seeds: usize) -> (Bid, Bot) {
         (1, Bot {
             pos: INIT_POS,
-            seeds: (2 ..= 40).collect(),
+            seeds: (2 ..= max_seeds).collect(),
         })
     }
 
@@ -367,7 +376,13 @@ impl Nanobot {
                             }),
                         _ =>
                             self.plan = Plan::HeadingFor {
-                                target: if self.bid == 1 { INIT_POS } else { Coord { x: 1, y: 0, z: 0, } },
+                                target: if self.bid == 1 {
+                                    INIT_POS
+                                } else {
+                                    let close: Vec<_> = INIT_POS.get_neighbours().collect();
+                                    let index = rng.gen_range(0, close.len());
+                                    close[index]
+                                },
                                 attempts: 0,
                                 goal: Goal::Park,
                             },
@@ -381,8 +396,21 @@ impl Nanobot {
                     let target = pick_random_coord(current_model.dim() as isize, rng);
                     self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
                 },
+                Plan::HeadingFor { target, attempts, goal: Goal::Wander, .. } if attempts > env.config.route_attempts_limit => {
+                    debug!("HeadingFor attempts limit exceeded for bid = {} while wandering, deciding to wait", self.bid);
+                    debug!("active nanobots count = {}", nanobots_count);
+                    debug!("current source {:?} is {}",
+                           self.bot.pos, if is_passable(&Region { min: self.bot.pos, max: self.bot.pos, }) { "passable" } else { "blocked" });
+                    debug!("current target {:?} is {}",
+                           target, if is_passable(&Region { min: target, max: target, }) { "passable" } else { "blocked" });
+                    // go somewhere else
+                    let target = pick_random_coord(current_model.dim() as isize, rng);
+                    self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
+                },
                 Plan::HeadingFor { target, attempts, goal, } if attempts > env.config.route_attempts_limit => {
                     debug!("HeadingFor attempts limit exceeded for bid = {} and  goal = {:?}", self.bid, goal);
+                    debug!("active nanobots count = {}", nanobots_count);
                     debug!("current source pos is {}",
                            if is_passable(&Region { min: self.bot.pos, max: self.bot.pos, }) { "passable" } else { "blocked" });
                     debug!("current target pos is {}",
@@ -393,12 +421,18 @@ impl Nanobot {
                         attempts,
                     });
                 },
-                Plan::HeadingFor { goal: Goal::Park, target, .. } if target == self.bot.pos =>
-                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, },
+                Plan::HeadingFor { goal: Goal::Park, target, .. } if target == self.bot.pos => {
+                    warn!("target reached while in PARK mode, bot {} target {:?}", self.bid, self.bot.pos);
+                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
+                },
                 Plan::HeadingFor { goal: Goal::Wander, target, .. } if target == self.bot.pos => {
                     // spawn if able to
-                    if self.bot.seeds.len() > 0 && nanobots_count < env.config.max_spawns {
-                        if let Some(pos) = target.get_neighbours().find(|&p| is_passable(&Region { min: p, max: p, })) {
+                    if self.bot.seeds.len() > 0 && nanobots_count < env.config.max_spawns && self.bid == 1 {
+                        let dim = current_model.dim() as isize;
+                        if let Some(pos) = target.get_neighbours()
+                            .filter(|p| p.x < dim && p.y < dim && p.z < dim)
+                            .find(|&p| is_passable(&Region { min: p, max: p, }))
+                        {
                             let child = Nanobot {
                                 bid: self.bot.seeds.remove(0),
                                 bot: Bot { pos, seeds: vec![], },
@@ -409,6 +443,11 @@ impl Nanobot {
                                 child,
                                 cmd: BotCommand::Fission { near: pos.diff(&target), split_m: 0, },
                             };
+                        } else {
+                            // go somewhere
+                            let target = pick_random_coord(current_model.dim() as isize, rng);
+                            self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                            continue;
                         }
                     }
 
@@ -503,8 +542,13 @@ impl Nanobot {
                 },
                 Plan::HeadingFor { target, attempts, goal, } => {
                     // still moving to target
+                    let rtt_limit = if let Goal::Wander = goal {
+                        env.config.rtt_wander_limit
+                    } else {
+                        env.config.rtt_limit
+                    };
                     let route_result =
-                        route_and_step(&self.bot.pos, &target, current_model, &is_passable, commands_buf, env.config.rtt_limit, rng);
+                        route_and_step(&self.bot.pos, &target, current_model, &is_passable, commands_buf, rtt_limit, rng);
                     match route_result {
                         Ok(Some(moving_cmd)) => {
                             // can continue moving
@@ -523,7 +567,13 @@ impl Nanobot {
                                     // try to find a free position nearby
                                     self.plan = Plan::HeadingFor {
                                         goal: Goal::Park,
-                                        target: if self.bid == 1 { INIT_POS } else { Coord { x: 1, y: 0, z: 0, } },
+                                        target: if self.bid == 1 {
+                                            INIT_POS
+                                        } else {
+                                            let close: Vec<_> = INIT_POS.get_neighbours().collect();
+                                            let index = rng.gen_range(0, close.len());
+                                            close[index]
+                                        },
                                         attempts: attempts + 1,
                                     };
                                     return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
@@ -643,29 +693,6 @@ mod test {
         state::Bot,
         cmd::BotCommand,
     };
-    use super::{
-        Nanobot,
-    };
-
-    #[test]
-    fn nanobot_init_bot() {
-        assert_eq!(
-            Nanobot::init_bot(),
-            (1, Bot {
-                pos: Coord {
-                    x: 0,
-                    y: 0,
-                    z: 0,
-                },
-                seeds: vec![
-                    2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-                    13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                    23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
-                    33, 34, 35, 36, 37, 38, 39, 40,
-                ],
-            })
-        );
-    }
 
     #[test]
     fn make_towers_1() {
@@ -718,9 +745,11 @@ mod test {
         let script = super::solve(source_model, target_model, super::Config {
             init_bots: vec![],
             rtt_limit: 64,
+            rtt_wander_limit: 64,
             route_attempts_limit: 16,
             global_ticks_limit: 100,
             max_spawns: 1,
+            max_seeds: 1,
         }).unwrap();
         assert_eq!(script, vec![BotCommand::Halt]);
     }
@@ -738,9 +767,11 @@ mod test {
             super::Config {
                 init_bots: vec![(1, Bot { pos: Coord { x: 1, y: 0, z: 0, }, seeds: vec![], })],
                 rtt_limit: 64,
+                rtt_wander_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
                 max_spawns: 1,
+                max_seeds: 1,
             },
             &mut rng,
         ).unwrap();
@@ -769,9 +800,11 @@ mod test {
                     (2, Bot { pos: Coord { x: 2, y: 2, z: 2, }, seeds: vec![], }),
                     ],
                 rtt_limit: 64,
+                rtt_wander_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
                 max_spawns: 1,
+                max_seeds: 1,
             },
             &mut rng,
         ).unwrap();
@@ -783,12 +816,15 @@ mod test {
                     short2: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
                 },
                 BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -2 },
+                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
                     short2: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
                 },
 
                 BotCommand::Wait,
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::X, value: -1 } },
+                BotCommand::LMove {
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
+                },
 
                 BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 0 }) },
                 BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
@@ -815,9 +851,11 @@ mod test {
                     (3, Bot { pos: Coord { x: 0, y: 2, z: 0, }, seeds: vec![], }),
                     ],
                 rtt_limit: 64,
+                rtt_wander_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
                 max_spawns: 1,
+                max_seeds: 1,
             },
             &mut rng,
         ).unwrap();
@@ -829,7 +867,7 @@ mod test {
                     short2: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
                 },
                 BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -2 },
+                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
                     short2: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
                 },
                 BotCommand::LMove {
@@ -839,13 +877,13 @@ mod test {
 
                 BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 0 }) },
                 BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
+                    short1: LinearCoordDiff::Short { axis: Axis::X, value: -2 },
+                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 1 },
                 },
                 BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
 
-                BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 1, z: 0 }) },
-                BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: -1, z: 0 }) },
+                BotCommand::FusionP { near: CoordDiff(Coord { x: 0, y: 1, z: 1 }) },
+                BotCommand::FusionS { near: CoordDiff(Coord { x: 0, y: -1, z: -1 }) },
 
                 BotCommand::Halt
             ],
@@ -865,9 +903,11 @@ mod test {
             super::Config {
                 init_bots: vec![],
                 rtt_limit: 64,
+                rtt_wander_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
                 max_spawns: 1,
+                max_seeds: 1,
             },
             &mut rng,
         ).unwrap();
@@ -908,9 +948,11 @@ mod test {
             super::Config {
                 init_bots: vec![],
                 rtt_limit: 64,
+                rtt_wander_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
                 max_spawns: 1,
+                max_seeds: 1,
             },
             &mut rng,
         ).unwrap();
@@ -954,9 +996,11 @@ mod test {
             super::Config {
                 init_bots: vec![],
                 rtt_limit: 64,
+                rtt_wander_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
                 max_spawns: 1,
+                max_seeds: 1,
             },
             &mut rng,
         ).unwrap();
@@ -1007,9 +1051,11 @@ mod test {
             super::Config {
                 init_bots: vec![],
                 rtt_limit: 64,
+                rtt_wander_limit: 64,
                 route_attempts_limit: 16,
                 global_ticks_limit: 100,
                 max_spawns: 1,
+                max_seeds: 1,
             },
             &mut rng,
         ).unwrap();

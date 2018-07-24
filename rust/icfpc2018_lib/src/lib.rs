@@ -8,6 +8,7 @@ extern crate pathfinding;
 
 pub mod solver;
 pub mod router;
+pub mod octree;
 pub mod coord;
 pub mod state;
 pub mod model;

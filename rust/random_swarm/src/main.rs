@@ -69,6 +69,13 @@ fn run() -> Result<(), Error> {
              .help("Solver RTT router samples limit")
              .default_value("256")
              .takes_value(true))
+        .arg(Arg::with_name("rtt-wander-limit")
+             .short("r")
+             .long("rtt-wander-limit")
+             .value_name("LIMIT")
+             .help("Solver RTT router samples limit (used for wandering bots)")
+             .default_value("64")
+             .takes_value(true))
         .arg(Arg::with_name("route-attempts-limit")
              .long("route-attempts-limit")
              .value_name("LIMIT")
@@ -81,6 +88,13 @@ fn run() -> Result<(), Error> {
              .value_name("COUNT")
              .help("Solver maximum child spawns limit")
              .default_value("1")
+             .takes_value(true))
+        .arg(Arg::with_name("max-seeds")
+             .short("S")
+             .long("max-seeds")
+             .value_name("COUNT")
+             .help("Solver maximum seeds for a bot")
+             .default_value("40")
              .takes_value(true))
         .arg(Arg::with_name("output")
              .short("o")
@@ -117,11 +131,15 @@ fn run() -> Result<(), Error> {
         init_bots: vec![],
         rtt_limit: value_t!(matches, "rtt-limit", usize)
             .map_err(Error::InvalidIntegerValue)?,
+        rtt_wander_limit: value_t!(matches, "rtt-wander-limit", usize)
+            .map_err(Error::InvalidIntegerValue)?,
         route_attempts_limit: value_t!(matches, "route-attempts-limit", usize)
             .map_err(Error::InvalidIntegerValue)?,
         global_ticks_limit: value_t!(matches, "global-ticks-limit", usize)
             .map_err(Error::InvalidIntegerValue)?,
         max_spawns: value_t!(matches, "max-spawns", usize)
+            .map_err(Error::InvalidIntegerValue)?,
+        max_seeds: value_t!(matches, "max-seeds", usize)
             .map_err(Error::InvalidIntegerValue)?,
     };
 

@@ -200,6 +200,17 @@ impl Region {
         }
     }
 
+    pub fn contents(&self) -> impl Iterator<Item = Coord> {
+        let reg = *self;
+        (reg.min.x ..= reg.max.x)
+            .flat_map(move |x| {
+                (reg.min.y ..= reg.max.y).flat_map(move |y| {
+                    (reg.min.z ..= reg.max.z)
+                        .map(move |z| Coord { x, y, z, })
+                })
+            })
+    }
+
     pub fn coord_set(&self) -> HashSet<Coord> {
         let mut set = HashSet::new();
 
