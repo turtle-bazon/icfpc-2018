@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use rand::{self, Rng};
 
 use rtt::{
@@ -19,6 +18,10 @@ use super::super::{
         LinearCoordDiff,
     },
     cmd::BotCommand,
+    octree::{
+        Octree,
+        InsertStatus,
+    },
 };
 
 pub fn plan_route<FP>(
@@ -50,15 +53,18 @@ pub fn plan_route_rng<FP, R>(
         return None;
     }
 
-    let mut visited_voxels = HashSet::new();
+    let mut octree = Octree::new(Region {
+        min: Coord { x: 0, y: 0, z: 0, },
+        max: Coord { x: matrix_dim as isize, y: matrix_dim as isize, z: matrix_dim as isize, },
+    });
     let mut iters = 0;
 
     let planner = rtt::PlannerInit::new(EmptyRandomTree::new());
     let planner = planner.add_root_ok(|empty_rtt: EmptyRandomTree<Coord>| Ok(empty_rtt.add_root(bot_start)));
     let mut planner_node = planner.root_node_ok(|rtt: &mut RandomTree<Coord>| {
         let root_ref = rtt.root();
-        visited_voxels.insert(bot_start);
-        Ok(RttNodeFocus { node_ref: root_ref, goal_reached: false, })
+        assert_eq!(octree.insert(bot_start, root_ref), Ok(InsertStatus::Inserted));
+        Ok(RttNodeFocus { voxel: bot_start, node_ref: root_ref, goal_reached: false, })
     });
 
     let rev_path = loop {
@@ -87,22 +93,12 @@ pub fn plan_route_rng<FP, R>(
                 })
             });
             first_time = false;
-            let planner_closest = planner_sample.closest_to_sample_ok(|rtt: &mut RandomTree<Coord>, sample: &_| {
-                let mut closest;
-                {
-                    let states = rtt.states();
-                    closest = (states.root.0, states.root.1.diff(sample).l_1_norm());
-                    for (node_ref, mv) in states.children {
-                        let dist = mv.diff(sample).l_1_norm();
-                        if dist < closest.1 {
-                            closest = (node_ref, dist);
-                        }
-                    }
-                }
-                Ok(RttNodeFocus { node_ref: closest.0, goal_reached: false, })
+            let planner_closest = planner_sample.closest_to_sample_ok(|_rtt: &mut _, sample: &_| {
+                let (_dist, &voxel, &node_ref) = octree.nearest(sample).unwrap();
+                Ok(RttNodeFocus { voxel, node_ref, goal_reached: false, })
             });
 
-            if visited_voxels.contains(planner_closest.sample()) {
+            if &planner_closest.node_ref().voxel == planner_closest.sample() {
                 planner_ready_to_sample =
                     planner_closest.no_transition_ok(|_rtt: &mut _, _node_ref| Ok(()));
                 continue;
@@ -117,24 +113,28 @@ pub fn plan_route_rng<FP, R>(
             };
 
             if let Some(jump) = maybe_route {
-                planner_node =
-                    planner_closest.has_transition_ok(|rtt: &mut RandomTree<Coord>, focus: RttNodeFocus, _dst| {
-                        let mut node_ref = focus.node_ref;
-                        if visited_voxels.insert(jump.mid_a) {
+                if octree.get(&jump.mid_a).is_none() && octree.get(&jump.mid_b).is_none() {
+                    planner_node =
+                        planner_closest.has_transition_ok(|rtt: &mut RandomTree<Coord>, focus: RttNodeFocus, _dst| {
+                            let mut node_ref = focus.node_ref;
                             node_ref = rtt.expand(node_ref, jump.mid_a);
-                        }
-                        if visited_voxels.insert(jump.mid_b) {
-                            node_ref = rtt.expand(node_ref, jump.mid_b);
-                        }
-                        if visited_voxels.insert(jump.finish) {
-                            node_ref = rtt.expand(node_ref, jump.finish);
-                        }
-                        Ok(RttNodeFocus {
-                            node_ref,
-                            goal_reached: jump.finish == bot_finish,
-                        })
-                    });
-                break;
+                            assert_eq!(octree.insert(jump.mid_a, node_ref), Ok(InsertStatus::Inserted));
+                            if jump.mid_b != jump.mid_a {
+                                node_ref = rtt.expand(node_ref, jump.mid_b);
+                                assert_eq!(octree.insert(jump.mid_b, node_ref), Ok(InsertStatus::Inserted));
+                            }
+                            if jump.finish != jump.mid_b && jump.finish != jump.mid_a {
+                                node_ref = rtt.expand(node_ref, jump.finish);
+                                assert_eq!(octree.insert(jump.finish, node_ref), Ok(InsertStatus::Inserted));
+                            }
+                            Ok(RttNodeFocus {
+                                voxel: jump.finish,
+                                node_ref,
+                                goal_reached: jump.finish == bot_finish,
+                            })
+                        });
+                    break;
+                }
             }
             planner_ready_to_sample =
                 planner_closest.no_transition_ok(|_rtt: &mut _, _node_ref| Ok(()));
@@ -208,6 +208,7 @@ pub fn plan_route_commands(route: &[Coord], commands: &mut Vec<(Coord, BotComman
 }
 
 struct RttNodeFocus {
+    voxel: Coord,
     node_ref: NodeRef,
     goal_reached: bool,
 }
