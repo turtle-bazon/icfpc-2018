@@ -186,8 +186,11 @@ pub fn solve_rng<R>(
                 &BotCommand::GVoid { .. } |
                 &BotCommand::Flip =>
                     (),
-                &BotCommand::Fission { .. } =>
-                    nanobots_count += 1,
+                &BotCommand::Fission { near, .. } => {
+                    let fission_coord = nanobot.bot.pos.add(near);
+                    volatiles.insert(fission_coord);
+                    nanobots_count += 1;
+                },
                 &BotCommand::SMove { ref long } => {
                     let move_diff = long.to_coord_diff();
                     let move_coord = nanobot.bot.pos.add(move_diff);
@@ -311,6 +314,7 @@ enum Goal {
     Wander,
     Fill { tower: Region, },
     Void { tower: Region, },
+    GnawUp,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -379,7 +383,10 @@ impl Nanobot {
                                 target: if self.bid == 1 {
                                     INIT_POS
                                 } else {
-                                    let close: Vec<_> = INIT_POS.get_neighbours().collect();
+                                    let close: Vec<_> = INIT_POS
+                                        .get_neighbours()
+                                        .filter(|p| INIT_POS.diff(p).l_1_norm() == 2)
+                                        .collect();
                                     let index = rng.gen_range(0, close.len());
                                     close[index]
                                 },
@@ -408,6 +415,16 @@ impl Nanobot {
                     self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
                     return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
                 },
+                Plan::HeadingFor { target, attempts, goal: Goal::Fill { tower }, .. }
+                if attempts > env.config.route_attempts_limit && tower.min == Coord { x: self.bot.pos.x, y: self.bot.pos.y + 1, z: self.bot.pos.z, } =>
+                {
+                    debug!("HeadingFor attempts limit exceeded for bid = {} while filling, probably stuck, deciding to gnaw up", self.bid);
+                    debug!("current source {:?} is {}",
+                           self.bot.pos, if is_passable(&Region { min: self.bot.pos, max: self.bot.pos, }) { "passable" } else { "blocked" });
+                    debug!("current target {:?} is {}",
+                           target, if is_passable(&Region { min: target, max: target, }) { "passable" } else { "blocked" });
+                    self.plan = Plan::HeadingFor { target: self.bot.pos, attempts: 0, goal: Goal::GnawUp, };
+                },
                 Plan::HeadingFor { target, attempts, goal, } if attempts > env.config.route_attempts_limit => {
                     debug!("HeadingFor attempts limit exceeded for bid = {} and  goal = {:?}", self.bid, goal);
                     debug!("active nanobots count = {}", nanobots_count);
@@ -422,8 +439,43 @@ impl Nanobot {
                     });
                 },
                 Plan::HeadingFor { goal: Goal::Park, target, .. } if target == self.bot.pos => {
-                    warn!("target reached while in PARK mode, bot {} target {:?}", self.bid, self.bot.pos);
                     return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
+                },
+                Plan::HeadingFor { goal: Goal::GnawUp, target, .. } if target == self.bot.pos => {
+                    let dim = current_model.dim() as isize;
+                    let coord_below = Coord { x: target.x, y: target.y - 1, z: target.z, };
+                    if target.y > 0 && env.target_model.is_filled(&coord_below) {
+                        return if is_passable(&Region { min: coord_below, max: coord_below, }) {
+                            PlanResult::Regular {
+                                nanobot: self,
+                                cmd: BotCommand::Fill { near: coord_below.diff(&target), },
+                            }
+                        } else {
+                            PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
+                        };
+                    }
+                    if let Some(block_y) = (target.y + 1 .. dim).find(|&y| current_model.is_filled(&Coord { x: target.x, y, z: target.z, })) {
+                        if block_y == target.y + 1 {
+                            let coord_above = Coord { x: target.x, y: block_y, z: target.z, };
+                            return if is_passable(&Region { min: coord_above, max: coord_above, }) {
+                                PlanResult::Regular {
+                                    nanobot: self,
+                                    cmd: BotCommand::Void { near: coord_above.diff(&target), },
+                                }
+                            } else {
+                                PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
+                            };
+                        } else {
+                            self.plan = Plan::HeadingFor {
+                                target: Coord { x: target.x, y: block_y - 1, z: target.z, },
+                                attempts: 0,
+                                goal: Goal::GnawUp,
+                            };
+                        }
+                    } else {
+                        let target = pick_random_coord(current_model.dim() as isize, rng);
+                        self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                    }
                 },
                 Plan::HeadingFor { goal: Goal::Wander, target, .. } if target == self.bot.pos => {
                     // spawn if able to
@@ -436,7 +488,7 @@ impl Nanobot {
                             let child = Nanobot {
                                 bid: self.bot.seeds.remove(0),
                                 bot: Bot { pos, seeds: vec![], },
-                                plan: Plan::Init,
+                                plan: Plan::HeadingFor { goal: Goal::Wander, target: pos, attempts: 0, },
                             };
                             return PlanResult::Spawn {
                                 parent: self,
@@ -492,9 +544,9 @@ impl Nanobot {
                             attempts: 0,
                         }
                     } else {
-                        // no jobs left, but model isn't fully printed yet: go to left side
+                        // no jobs left, but model isn't fully printed yet: (not go to left side)
                         let mut target = pick_random_coord(current_model.dim() as isize, rng);
-                        target.x = 0;
+                        // target.x = 0;
                         Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, }
                     };
                 },
@@ -570,33 +622,29 @@ impl Nanobot {
                                         target: if self.bid == 1 {
                                             INIT_POS
                                         } else {
-                                            let close: Vec<_> = INIT_POS.get_neighbours().collect();
+                                            let close: Vec<_> = INIT_POS
+                                                .get_neighbours()
+                                                .filter(|p| INIT_POS.diff(p).l_1_norm() == 2)
+                                                .collect();
                                             let index = rng.gen_range(0, close.len());
                                             close[index]
                                         },
                                         attempts: attempts + 1,
                                     };
                                     return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
-
-                                    // let next_attempts = attempts + 1;
-                                    // let offset = (next_attempts % current_model.dim()) as isize;
-                                    // let axis = next_attempts % 2;
-                                    // self.plan = Plan::HeadingFor {
-                                    //     goal: Goal::Park,
-                                    //     target: Coord {
-                                    //         x: if axis == 0 { offset } else { 0 },
-                                    //         y: offset,
-                                    //         z: if axis == 1 { offset } else { 0 },
-                                    //     },
-                                    //     attempts: next_attempts,
-                                    // };
                                 },
                                 Goal::Void { tower, } => {
-                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Void { tower, } };
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Void { tower, }, };
                                     return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
                                 },
                                 Goal::Fill { tower, } => {
-                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Fill { tower, } };
+                                    fill_towers.push(tower);
+                                    let target = pick_random_coord(current_model.dim() as isize, rng);
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Wander, };
+                                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
+                                },
+                                Goal::GnawUp => {
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::GnawUp, };
                                     return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
                                 },
                             }
