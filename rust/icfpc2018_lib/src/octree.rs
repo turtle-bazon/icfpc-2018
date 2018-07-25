@@ -1,5 +1,4 @@
 use std::mem;
-use std::collections::BinaryHeap;
 
 use super::coord::{
     Region,
@@ -20,7 +19,7 @@ pub enum InsertStatus {
 
 pub struct Octree<T> {
     nodes: Vec<Node<T>>,
-    queue: BinaryHeap<(isize, usize)>,
+    queue: Vec<(usize, usize)>,
 }
 
 
@@ -44,7 +43,7 @@ impl<T> Octree<T> {
                 bounds: dimension,
                 content: Content::Empty,
             }],
-            queue: BinaryHeap::new(),
+            queue: Vec::new(),
         }
     }
 
@@ -247,11 +246,25 @@ impl<T> Octree<T> {
 
         let mut best_found: Option<(usize, &'a Coord, &'a T)> = None;
 
-        while let Some((node_distance_neg, node_ref)) = self.queue.pop() {
-            let node_distance = -node_distance_neg as usize;
-            if best_found.as_ref().map(|best| best.0 < node_distance).unwrap_or(false) {
-                break;
+        loop {
+            let mut i = 0;
+            let mut queue_best: Option<(usize, usize)> = None;
+            while i < self.queue.len() {
+                let (queue_node_distance, _) = self.queue[i];
+                if best_found.as_ref().map(|best| best.0 < queue_node_distance).unwrap_or(false) {
+                    self.queue.swap_remove(i);
+                } else if queue_best.as_ref().map(|best| queue_node_distance < best.0).unwrap_or(true) {
+                    queue_best = Some((queue_node_distance, i));
+                    i += 1;
+                } else {
+                    i += 1;
+                }
             }
+            let (_, node_ref) = if let Some((_, queue_index)) = queue_best {
+                self.queue.swap_remove(queue_index)
+            } else {
+                return best_found;
+            };
 
             let node = &self.nodes[node_ref];
             match node.content {
@@ -292,14 +305,11 @@ impl<T> Octree<T> {
                                 0
                             },
                         });
-                        let node_distance_neg = -(proj_diff.l_1_norm() as isize);
-                        (node_distance_neg, node_ref)
-                    }));
+                        (proj_diff.l_1_norm(), node_ref)
+                    }).filter(|neighbour| best_found.as_ref().map(|best| neighbour.0 < best.0).unwrap_or(true)));
                 },
             }
         }
-
-        best_found
     }
 }
 
