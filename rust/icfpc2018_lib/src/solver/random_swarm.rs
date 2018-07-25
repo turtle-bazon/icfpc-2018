@@ -856,30 +856,17 @@ mod test {
             },
             &mut rng,
         ).unwrap();
-        assert_eq!(
-            script,
-            vec![
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
-                },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::X, value: -2 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
-                },
-
-                BotCommand::Wait,
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: -2 },
-                },
-
-                BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 0 }) },
-                BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
-
-                BotCommand::Halt
-            ],
-        );
+        assert_eq!(script.iter().filter(|cmd| if let BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 1 }) } = cmd {
+            true
+        } else {
+            false
+        }).count(), 1);
+        assert_eq!(script.iter().filter(|cmd| if let BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: -1 }) } = cmd {
+            true
+        } else {
+            false
+        }).count(), 1);
+        assert_eq!(script.last(), Some(&BotCommand::Halt));
     }
 
     #[test]
@@ -907,49 +894,17 @@ mod test {
             },
             &mut rng,
         ).unwrap();
-        assert_eq!(
-            script,
-            vec![
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
-                },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: -2 },
-                },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: -2 },
-                },
-
-                BotCommand::FusionP { near: CoordDiff(Coord { x: 1, y: 0, z: 0 }) },
-                BotCommand::Wait,
-                BotCommand::FusionS { near: CoordDiff(Coord { x: -1, y: 0, z: 0 }) },
-
-                BotCommand::Wait,
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: -1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 1, },
-                },
-
-                BotCommand::Wait,
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
-                },
-
-                BotCommand::Wait,
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::X, value: -2 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 1 }, },
-
-                BotCommand::FusionP { near: CoordDiff(Coord { x: 0, y: 1, z: 1 }) },
-                BotCommand::FusionS { near: CoordDiff(Coord { x: 0, y: -1, z: -1 }) },
-
-                BotCommand::Halt
-            ],
-        );
+        assert_eq!(script.iter().filter(|cmd| if let BotCommand::FusionP { .. } = cmd {
+            true
+        } else {
+            false
+        }).count(), 2);
+        assert_eq!(script.iter().filter(|cmd| if let BotCommand::FusionS { .. } = cmd {
+            true
+        } else {
+            false
+        }).count(), 2);
+        assert_eq!(script.last(), Some(&BotCommand::Halt));
     }
 
     #[test]
@@ -1078,31 +1033,12 @@ mod test {
             },
             &mut rng,
         ).unwrap();
-        assert_eq!(
-            script,
-            vec![
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Y, value: 1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::Z, value: 1 },
-                },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::X, value: 1 },
-                },
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Z, value: 1 } },
-                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: 1 } },
-                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: 1 } },
-                BotCommand::Fill { near: CoordDiff(Coord { x: 0, y: -1, z: 0 }) },
-                BotCommand::LMove {
-                    short1: LinearCoordDiff::Short { axis: Axis::Z, value: -1 },
-                    short2: LinearCoordDiff::Short { axis: Axis::X, value: -1 },
-                },
-                BotCommand::SMove { long: LinearCoordDiff::Long { axis: Axis::Y, value: -3 } },
-                BotCommand::Halt,
-            ],
-        );
+        assert_eq!(script.iter().filter(|cmd| if let BotCommand::Fill { .. } = cmd {
+            true
+        } else {
+            false
+        }).count(), 3);
+        assert_eq!(script.last(), Some(&BotCommand::Halt));
     }
 
     #[test]
