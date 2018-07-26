@@ -1,6 +1,12 @@
 use std::collections::HashSet;
 use rand::{self, Rng};
 
+use rayon::iter::{
+    ParallelIterator,
+    IntoParallelRefIterator,
+    IndexedParallelIterator,
+};
+
 use super::super::{
     coord::{
         Coord,
@@ -26,6 +32,7 @@ pub enum Error {
     GlobalTicksLimitExceeded { ticks: usize, voxels_to_do: usize, },
     NoRouteToVoidDest { start: Coord, finish: Coord, region: Region, },
     NoRouteToFillDest { start: Coord, finish: Coord, region: Region, },
+    SlaveFusionNotDetected { slave_bid: Bid, slave_pos: Coord, master_pos: Coord, },
 }
 
 pub struct Config {
@@ -116,32 +123,72 @@ pub fn solve_rng<R>(
                 voxels_to_do,
             }, script));
         }
+
         // check for stop condition
-        let work_state = if work_complete || current_model.equals(&env.target_model) {
+        if work_complete || current_model.equals(&env.target_model) {
             if !work_complete {
                 info!("target model is successfully printed");
                 work_complete = true;
             }
             if nanobots.is_empty() {
                 return Ok(script);
-            }
-
-            let (mut master, mut slave) = (None, None);
-            for nanobot in nanobots.iter() {
-                let pos = nanobot.bot.pos;
-                if pos == INIT_POS {
-                    master = Some(pos);
-                } else if pos.diff(&INIT_POS).is_near() {
-                    slave = Some(pos);
+            } else if nanobots.len() == 1 {
+                nanobots[0].plan = Plan::HeadingFor { target: INIT_POS, attempts: 0, goal: Goal::MasterPark, };
+            } else {
+                // check if any master/slave pairs are ready to fusion
+                for master_index in 0 .. nanobots.len() {
+                    let master_pos = nanobots[master_index].bot.pos;
+                    let slave_pos = if let Plan::FusionMasterWait { slave, } = nanobots[master_index].plan {
+                        slave
+                    } else {
+                        continue;
+                    };
+                    let maybe_slave_index = nanobots.iter()
+                        .position(|slave_nanobot| match slave_nanobot.plan {
+                            Plan::HeadingFor { goal: Goal::FusionSlave { master, slave, }, .. }
+                            if master == master_pos && slave == slave_pos && slave_nanobot.bot.pos == slave_pos =>
+                                true,
+                            _ =>
+                                false,
+                        });
+                    if let Some(slave_index) = maybe_slave_index {
+                        nanobots[master_index].plan = Plan::FusionMasterReady { slave: slave_pos, };
+                        nanobots[slave_index].plan = Plan::FusionSlaveReady { master: master_pos, };
+                    }
                 }
             }
-            WorkState::Completed {
-                nanobots_left: nanobots.len(),
-                slave_pick: master.and_then(|_| slave),
+
+            // pick remaining master/slave pairs for fusion
+            let mut current_master: Option<(usize, Coord, Coord)> = None;
+            for index in 0 .. nanobots.len() {
+                match nanobots[index].plan {
+                    Plan::FusionMasterWait { .. } |
+                    Plan::FusionMasterReady { .. } |
+                    Plan::FusionSlaveReady { .. } |
+                    Plan::HeadingFor { goal: Goal::FusionSlave { .. }, .. } =>
+                        continue,
+                    _ =>
+                        (),
+                }
+                if let Some((master_index, master, slave)) = current_master {
+                    nanobots[master_index].plan = Plan::FusionMasterWait { slave, };
+                    nanobots[index].plan = Plan::HeadingFor { goal: Goal::FusionSlave { master, slave, }, target: slave, attempts: 0, };
+                    current_master = None;
+                } else {
+                    let master = nanobots[index].bot.pos;
+                    let maybe_slave = master
+                        .get_neighbours_limit(current_model.dim() as isize)
+                        .filter(|pos| pos != &master && !current_model.is_filled(pos))
+                        .next();
+                    if let Some(slave) = maybe_slave {
+                        current_master = Some((index, master, slave));
+                    } else {
+                        let target = pick_random_coord(current_model.dim() as isize, rng);
+                        nanobots[index].plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                    }
+                }
             }
-        } else {
-            WorkState::InProgress
-        };
+        }
 
         volatiles.clear();
         volatiles.extend(nanobots.iter().map(|nanobot| nanobot.bot.pos));
@@ -157,7 +204,6 @@ pub fn solve_rng<R>(
                 nanobot.implement_plan(
                     &env,
                     &current_model,
-                    work_state,
                     ungrounded_voxel,
                     nanobots_count,
                     |region| if region.min.x < 0 || region.min.y < 0 || region.min.y < 0 {
@@ -231,11 +277,15 @@ pub fn solve_rng<R>(
                 PlanResult::DoAndPerish(cmd) =>
                     script_tick.push(cmd),
                 PlanResult::Regular { mut nanobot, cmd, } => {
+                    // debug!("tick {} bot {} @ {:?} performs {:?}", ticks_count, nanobot.bid, nanobot.bot.pos, cmd);
+
                     interpret(&mut nanobot, &cmd).map_err(|e| (e, script.clone()))?;
                     script_tick.push(cmd);
                     next_nanobots.push(nanobot);
                 },
                 PlanResult::Spawn { mut parent, child, cmd, } => {
+                    // debug!("tick {} bot {} @ {:?} performs {:?}", ticks_count, parent.bid, parent.bot.pos, cmd);
+
                     interpret(&mut parent, &cmd).map_err(|e| (e, script.clone()))?;
                     script_tick.push(cmd);
                     next_nanobots.push(parent);
@@ -306,24 +356,19 @@ struct Nanobot {
 enum Plan {
     Init,
     HeadingFor { target: Coord, attempts: usize, goal: Goal, },
+    FusionMasterWait { slave: Coord, },
+    FusionMasterReady { slave: Coord, },
+    FusionSlaveReady { master: Coord, },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Goal {
-    Park,
     Wander,
     Fill { tower: Region, },
     Void { tower: Region, },
     GnawUp,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum WorkState {
-    InProgress,
-    Completed {
-        nanobots_left: usize,
-        slave_pick: Option<Coord>,
-    },
+    FusionSlave { master: Coord, slave: Coord, },
+    MasterPark,
 }
 
 enum PlanResult {
@@ -345,7 +390,6 @@ impl Nanobot {
         mut self,
         env: &Env,
         current_model: &Matrix,
-        work_state: WorkState,
         ungrounded_voxel: Option<Coord>,
         nanobots_count: usize,
         is_passable: FP,
@@ -356,46 +400,6 @@ impl Nanobot {
     )
         -> PlanResult where FP: Fn(&Region) -> bool, R: Rng,
     {
-        match work_state {
-            WorkState::InProgress =>
-                (),
-            WorkState::Completed { nanobots_left, slave_pick, } =>
-                if self.bot.pos == INIT_POS {
-                    // i am the master
-                    return if nanobots_left == 1 {
-                        PlanResult::DoAndPerish(BotCommand::Halt)
-                    } else if let Some(slave_coord) = slave_pick {
-                        let fusion_cmd = BotCommand::FusionP {
-                            near: slave_coord.diff(&self.bot.pos),
-                        };
-                        PlanResult::Regular { nanobot: self, cmd: fusion_cmd, }
-                    } else {
-                        PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
-                    };
-                } else {
-                    match slave_pick {
-                        Some(coord) if coord == self.bot.pos =>
-                            return PlanResult::DoAndPerish(BotCommand::FusionS {
-                                near: INIT_POS.diff(&self.bot.pos),
-                            }),
-                        _ =>
-                            self.plan = Plan::HeadingFor {
-                                target: if self.bid == 1 {
-                                    INIT_POS
-                                } else {
-                                    let close: Vec<_> = INIT_POS
-                                        .get_neighbours()
-                                        .filter(|p| INIT_POS.diff(p).l_1_norm() == 2)
-                                        .collect();
-                                    let index = rng.gen_range(0, close.len());
-                                    close[index]
-                                },
-                                attempts: 0,
-                                goal: Goal::Park,
-                            },
-                    };
-                },
-        }
         loop {
             match self.plan {
                 Plan::Init => {
@@ -403,6 +407,17 @@ impl Nanobot {
                     let target = pick_random_coord(current_model.dim() as isize, rng);
                     self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
                 },
+                Plan::FusionMasterWait { .. } =>
+                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, },
+                Plan::FusionMasterReady { slave, } => {
+                    let master = self.bot.pos;
+                    // go somewhere after fusion
+                    let target = pick_random_coord(current_model.dim() as isize, rng);
+                    self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::FusionP { near: slave.diff(&master), }, };
+                },
+                Plan::FusionSlaveReady { master, } =>
+                    return PlanResult::DoAndPerish(BotCommand::FusionS { near: master.diff(&self.bot.pos), }),
                 Plan::HeadingFor { target, attempts, goal: Goal::Wander, .. } if attempts > env.config.route_attempts_limit => {
                     debug!("HeadingFor attempts limit exceeded for bid = {} while wandering, deciding to wait", self.bid);
                     debug!("active nanobots count = {}", nanobots_count);
@@ -425,6 +440,16 @@ impl Nanobot {
                            target, if is_passable(&Region { min: target, max: target, }) { "passable" } else { "blocked" });
                     self.plan = Plan::HeadingFor { target: self.bot.pos, attempts: 0, goal: Goal::GnawUp, };
                 },
+                Plan::HeadingFor { target, attempts, goal: Goal::Fill { tower }, .. } if attempts > env.config.route_attempts_limit => {
+                    debug!("HeadingFor attempts limit exceeded for bid = {} while filling, dunno why, let's escape out", self.bid);
+                    debug!("current source {:?} is {}",
+                           self.bot.pos, if is_passable(&Region { min: self.bot.pos, max: self.bot.pos, }) { "passable" } else { "blocked" });
+                    debug!("current target {:?} is {}",
+                           target, if is_passable(&Region { min: target, max: target, }) { "passable" } else { "blocked" });
+                    fill_towers.push(tower);
+                    let target = pick_random_coord(current_model.dim() as isize, rng);
+                    self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+                },
                 Plan::HeadingFor { target, attempts, goal, } if attempts > env.config.route_attempts_limit => {
                     debug!("HeadingFor attempts limit exceeded for bid = {} and  goal = {:?}", self.bid, goal);
                     debug!("active nanobots count = {}", nanobots_count);
@@ -437,9 +462,6 @@ impl Nanobot {
                         target,
                         attempts,
                     });
-                },
-                Plan::HeadingFor { goal: Goal::Park, target, .. } if target == self.bot.pos => {
-                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
                 },
                 Plan::HeadingFor { goal: Goal::GnawUp, target, .. } if target == self.bot.pos => {
                     let dim = current_model.dim() as isize;
@@ -477,30 +499,37 @@ impl Nanobot {
                         self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
                     }
                 },
+                Plan::HeadingFor { goal: Goal::MasterPark, target, .. } if target == self.bot.pos => {
+                    assert_eq!(target, INIT_POS);
+                    return PlanResult::DoAndPerish(BotCommand::Halt);
+                },
                 Plan::HeadingFor { goal: Goal::Wander, target, .. } if target == self.bot.pos => {
                     // spawn if able to
-                    if self.bot.seeds.len() > 0 && nanobots_count < env.config.max_spawns && self.bid == 1 {
-                        let dim = current_model.dim() as isize;
-                        if let Some(pos) = target.get_neighbours()
-                            .filter(|p| p.x < dim && p.y < dim && p.z < dim)
+                    if self.bot.seeds.len() > 0 && nanobots_count < env.config.max_spawns {
+                        // go somewhere after spawn success or failure
+                        let target = pick_random_coord(current_model.dim() as isize, rng);
+                        self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
+
+                        if let Some(pos) = self.bot.pos.get_neighbours()
+                            .filter(|p| p != &self.bot.pos)
                             .find(|&p| is_passable(&Region { min: p, max: p, }))
                         {
+                            let mid = self.bot.seeds.len() / 2;
+                            let mut child_seeds: Vec<_> = self.bot.seeds.drain(0 ..= mid).collect();
+                            let child_bid = child_seeds.remove(0);
                             let child = Nanobot {
-                                bid: self.bot.seeds.remove(0),
-                                bot: Bot { pos, seeds: vec![], },
+                                bid: child_bid,
+                                bot: Bot { pos, seeds: child_seeds, },
                                 plan: Plan::HeadingFor { goal: Goal::Wander, target: pos, attempts: 0, },
                             };
+                            let self_pos = self.bot.pos;
                             return PlanResult::Spawn {
                                 parent: self,
                                 child,
-                                cmd: BotCommand::Fission { near: pos.diff(&target), split_m: 0, },
+                                cmd: BotCommand::Fission { near: pos.diff(&self_pos), split_m: mid as u8, },
                             };
-                        } else {
-                            // go somewhere
-                            let target = pick_random_coord(current_model.dim() as isize, rng);
-                            self.plan = Plan::HeadingFor { target, attempts: 0, goal: Goal::Wander, };
-                            continue;
                         }
+                        continue;
                     }
 
                     // take a job if any
@@ -513,12 +542,24 @@ impl Nanobot {
                             (flag, -region.min.y, top_center.diff(&region.min).l_1_norm() + top_center.diff(&region.max).l_1_norm())
                         })
                         .map(|p| p.0);
-                    let maybe_fill_index = fill_towers.iter()
+                    let maybe_fill_index = fill_towers
+                        .par_iter()
                         .enumerate()
-                        .min_by_key(|(_, region)| {
+                        .map(|(i, region)| (i, region, current_model.will_be_grounded(&region.min)))
+                        .map(|(i, region, ground_flag)| {
+                            let filled_neighbours = region.contents()
+                                .flat_map(|voxel| current_model.filled_near_neighbours(&voxel))
+                                .count();
+                            (i, region, ground_flag, filled_neighbours as isize)
+                        })
+                        .min_by_key(|&(_, ref region, ground_flag, filled_neighbours)| {
                             let bottom_center = Coord { x: dim / 2, y: 0, z: dim / 2, };
-                            let flag = ungrounded_voxel.map(|v| !region.contains(&v)).unwrap_or(true);
-                            (flag, region.min.y, bottom_center.diff(&region.min).l_1_norm() + bottom_center.diff(&region.max).l_1_norm())
+                            (
+                                !ground_flag,
+                                -filled_neighbours,
+                                region.min.y,
+                                bottom_center.diff(&region.min).l_1_norm() + bottom_center.diff(&region.max).l_1_norm(),
+                            )
                         })
                         .map(|p| p.0);
                     self.plan = if let Some(index) = maybe_void_index {
@@ -592,6 +633,21 @@ impl Nanobot {
                         };
                     }
                 },
+                Plan::HeadingFor { goal: Goal::FusionSlave { master, slave, }, target, .. } if target == self.bot.pos => {
+                    if target == slave {
+                        return PlanResult::Error(Error::SlaveFusionNotDetected {
+                            slave_bid: self.bid,
+                            slave_pos: slave,
+                            master_pos: master,
+                        });
+                    } else {
+                        self.plan = Plan::HeadingFor {
+                            goal: Goal::FusionSlave { master, slave, },
+                            target: slave,
+                            attempts: 0,
+                        };
+                    }
+                },
                 Plan::HeadingFor { target, attempts, goal, } => {
                     // still moving to target
                     let rtt_limit = if let Goal::Wander = goal {
@@ -615,37 +671,25 @@ impl Nanobot {
                                     let target = pick_random_coord(current_model.dim() as isize, rng);
                                     self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Wander, };
                                 },
-                                Goal::Park => {
-                                    // try to find a free position nearby
-                                    self.plan = Plan::HeadingFor {
-                                        goal: Goal::Park,
-                                        target: if self.bid == 1 {
-                                            INIT_POS
-                                        } else {
-                                            let close: Vec<_> = INIT_POS
-                                                .get_neighbours()
-                                                .filter(|p| INIT_POS.diff(p).l_1_norm() == 2)
-                                                .collect();
-                                            let index = rng.gen_range(0, close.len());
-                                            close[index]
-                                        },
-                                        attempts: attempts + 1,
-                                    };
-                                    return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, }
-                                },
                                 Goal::Void { tower, } => {
                                     self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Void { tower, }, };
                                     return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
                                 },
                                 Goal::Fill { tower, } => {
-                                    fill_towers.push(tower);
-                                    let target = pick_random_coord(current_model.dim() as isize, rng);
-                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Wander, };
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::Fill { tower, }, };
                                     return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
                                 },
                                 Goal::GnawUp => {
                                     self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::GnawUp, };
                                     return PlanResult::Regular { nanobot: self, cmd: BotCommand::Wait, };
+                                },
+                                Goal::FusionSlave { master, slave, } => {
+                                    // cannot reach master currently, try to escape at random position
+                                    let target = pick_random_coord(current_model.dim() as isize, rng);
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::FusionSlave { master, slave, }, };
+                                },
+                                Goal::MasterPark => {
+                                    self.plan = Plan::HeadingFor { target, attempts: attempts + 1, goal: Goal::MasterPark, };
                                 },
                             }
                         Err(error) =>

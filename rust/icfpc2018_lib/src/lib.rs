@@ -1,5 +1,6 @@
 extern crate rtt;
 extern crate rand;
+extern crate rayon;
 extern crate kdvtree;
 extern crate bit_vec;
 extern crate pathfinding;

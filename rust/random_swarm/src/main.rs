@@ -103,6 +103,10 @@ fn run() -> Result<(), Error> {
              .help("Trace file output")
              .default_value("a.nbt")
              .takes_value(true))
+        .arg(Arg::with_name("use-seeded-rng")
+             .short("R")
+             .long("use-seeded-rng")
+             .help("Use seeded xor-shift rng"))
         .get_matches();
     let (source_model, target_model) =
         if let Some(source_model_file) = matches.value_of("source-model") {
@@ -124,8 +128,8 @@ fn run() -> Result<(), Error> {
             }
         };
 
-    info!("source model with {} voxels", source_model.filled_voxels().count());
-    info!("target model with {} voxels", target_model.filled_voxels().count());
+    info!("source model {}^3 with {} voxels", source_model.dim(), source_model.filled_voxels().count());
+    info!("target model {}^3 with {} voxels", target_model.dim(), target_model.filled_voxels().count());
 
     let config = random_swarm::Config {
         init_bots: vec![],
@@ -145,12 +149,25 @@ fn run() -> Result<(), Error> {
 
     info!("Everything is ready, start solving");
 
-    let solve_result = random_swarm::solve_rng(
-        source_model,
-        target_model,
-        config,
-        &mut rand::thread_rng(),
-    );
+    let solve_result = if matches.is_present("use-seeded-rng") {
+        use rand::{SeedableRng, prng::XorShiftRng};
+        let mut rng: XorShiftRng =
+            SeedableRng::from_seed([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        random_swarm::solve_rng(
+            source_model,
+            target_model,
+            config,
+            &mut rng,
+        )
+    } else {
+        random_swarm::solve_rng(
+            source_model,
+            target_model,
+            config,
+            &mut rand::thread_rng(),
+        )
+    };
+
 
     let (script, status) = match solve_result {
         Ok(script) =>
